@@ -129,13 +129,13 @@ The analysis uses participant-specific physiological baseline heart rate obtaine
 
 Baseline-referenced heart rate is defined as
 
-$$
+```math
 NHR = HR_{\mathrm{raw}} - HR_{\mathrm{base}}
-$$
+```
 
 The predictive framework represents instantaneous heart rate as
 
-$$
+```math
 HR_{\mathrm{raw}}
 =
 HR_{\mathrm{base}}
@@ -145,13 +145,13 @@ HR_{\mathrm{base}}
 \phi(X)
 +
 \epsilon
-$$
+```
 
 where
 
-- $HR_{\mathrm{base}}$ is participant-specific baseline,
-- $\tau_c$ is the context-specific offset,
-- $\phi(X)$ represents modulation by observed covariates,
+- $HR_{\mathrm{base}}$ is the participant-specific baseline.
+- $\tau_c$ is the context-specific offset.
+- $\phi(X)$ represents modulation by observed covariates.
 - $\epsilon$ is residual variation.
 
 Prediction performance is evaluated using nested grouped cross-validation to ensure complete separation of participants between training and testing folds.
