@@ -129,23 +129,23 @@ The analysis uses participant-specific physiological baseline heart rate obtaine
 
 Baseline-referenced heart rate is defined as
 
-\[
-NHR = HR_{raw} - HR_{base}
-\]
+$$
+NHR = HR_{\mathrm{raw}} - HR_{\mathrm{base}}
+$$
 
 The predictive framework represents instantaneous heart rate as
 
-\[
-HR_{raw}
+$$
+HR_{\mathrm{raw}}
 =
-HR_{base}
+HR_{\mathrm{base}}
 +
 \tau_c
 +
 \phi(X)
 +
 \epsilon
-\]
+$$
 
 where
 
