@@ -2,36 +2,41 @@
 # 06_figure6_enet_modulators.R
 #
 # PURPOSE
-#   Generate Figure 6 for the npj Digital Medicine manuscript:
+#   Generate Figure 6 for the npj Digital Public Health manuscript:
 #
-#     From Instantaneous Heart Rate to Long-Horizon
-#     Cardiovascular Burden in Naturalistic Daily Life
+#     Wearable sensing reveals the structure of cardiac
+#     activation associated with everyday driving
 #
-#   The script visualizes non-physiological ENet modulators of
-#   heart rate beyond participant baseline and the context-level
-#   cardiovascular tax.
+#   The script visualizes covariate-based modulation of heart rate
+#   in the ENet model and the incremental predictive gain over the
+#   participant-baseline-plus-context-specific-offset comparator.
 #
 # ANALYTIC DEFINITION
-#   Figure 6 summarizes the additional structure captured by the
-#   ENet model after accounting for:
+#   Figure 6 summarizes covariate-based modulation in the direct
+#   raw-heart-rate ENet model and compares its held-out performance
+#   with the baseline-plus-offset comparator:
 #
 #     baseline0
-#       Person-specific baseline heart rate
+#       Participant-specific baseline heart rate
 #
 #     baseline_offset
-#       Person baseline plus context-level tax
-#       - driving: driving tax
-#       - non-driving sedentary: daily-living tax
+#       Participant-specific baseline plus a stratum-specific offset
+#       estimated from the outer-fold training participants
 #
-#   The ENet model captures additional modulation by observed
-#   covariates such as temporal context, weather, workload,
-#   personality traits, and driving dynamics.
+#     enet
+#       Direct prediction of raw heart rate from participant baseline
+#       and observed covariates
+#
+#   Because ENet is fit directly to raw heart rate, Panels A-C show
+#   covariate importance and coefficient-implied modulation within
+#   that model; they are not coefficients from a separately fitted
+#   residual model.
 #
 # PANEL DEFINITIONS
-#   A. Grouped ENet feature importance beyond baseline+tax
+#   A. Grouped covariate importance in ENet
 #   B. Signed standardized coefficients for interpretable predictors
 #   C. Top continuous modulators shown as coefficient-implied effects
-#   D. Incremental ENet gain beyond baseline+tax
+#   D. Incremental ENet gain over the baseline-plus-offset model
 #
 # INPUT
 #   1) Final clean MASTER dataset:
@@ -48,7 +53,7 @@
 #        feature_importance_grouped_NONDRIVING_SEDENTARY.csv
 #        feature_importance_terms_DRIVING.csv
 #        feature_importance_terms_NONDRIVING_SEDENTARY.csv
-#        compare_metrics_rawhr_overall_by_stratum.csv
+#        compare_metrics_rawhr_by_fold_by_stratum.csv
 #
 # MAJOR OUTPUTS
 #   The script writes Figure 6 and supporting diagnostics under:
@@ -60,6 +65,7 @@
 #     Figure6_ENet_Modulators.pdf
 #     Figure6_ENet_Modulators.png
 #     diagnostics_summary.txt
+#     run_log.txt
 #     diag_counts_by_stratum.csv
 #     diag_panelA_grouped_features.csv
 #     diag_panelB_terms.csv
@@ -80,7 +86,8 @@
 # NOTES
 #   - The ENet outputs are assumed to have been fit to direct RAW_HR.
 #   - Panel C is a coefficient-implied linear effect summary, not
-#     a PDP or ALE curve.
+#     a PDP or ALE curve. Numeric predictors are median-imputed and
+#     standardized to reproduce the full-refit recipe transformation.
 #   - Weather terms are treated as DRIVING-specific and excluded
 #     from NONDRIVING_SEDENTARY displays as a defensive guard.
 #   - Display labels are cleaned for manuscript consistency:
@@ -107,14 +114,12 @@ set.seed(20260309)
 # ============================================================
 LOCAL_TZ <- "America/Chicago"
 
-# Use exact folder name inside Results/nubi_ml, or leave NULL to auto-pick.
-# For manuscript reproduction, the auto-picker searches for the final
-# direct-RAW_HR ENet importance run.
-RUN_DIR_NAME <- NULL
+# Manuscript/public-repository resolution.
+RES_SECONDS <- 60L
 
-# Optional extra filter when auto-picking. Leave blank for public GitHub use,
-# because downloaded/copied run folders may have different timestamped names.
-RUN_DIR_SUFFIX_REGEX <- ""
+# Use an exact folder name inside Results/nubi_ml, or leave NULL to auto-pick
+# the most recently modified compatible 60-s run.
+RUN_DIR_NAME <- NULL
 
 TOPK_GROUPED  <- 12L
 TOPK_TERMS    <- 14L
@@ -139,7 +144,8 @@ EXCLUDE_GROUPS <- c(
   "baseline_hr",
   "offset",
   "context_offset",
-  "raw_hr_offset"
+  "raw_hr_offset",
+  "baseline_offset"
 )
 
 # Interpretable term prefixes for Panel B
@@ -151,6 +157,10 @@ TERM_REGEX <- paste0(
       "gender_",
       "day_num_",
       "days_",
+      "day_period_",
+      "day_type_",
+      "in_radius$",
+      "in_radius_",
       "weather_info_",
       "trip_time_",
       "md$",
@@ -232,10 +242,12 @@ canonicalize_names <- function(dt) {
     trip_time="trip_time", triptime="trip_time",
     day_num="day_num", daynum="day_num",
     days="days",
+    day_period="day_period",
+    day_type="day_type",
     weather_info="weather_info", weather="weather_info",
     in_radius="in_radius", inradius="in_radius",
     
-    sex="sex", gender="sex",
+    sex="gender", gender="gender",
     age="age",
     trait_anxiety="trait_anxiety",
     morning_anxiety="morning_anxiety",
@@ -277,12 +289,60 @@ pretty_term_label <- function(x) {
   x <- as.character(x)
   
   x <- dplyr::recode(
+    
     x,
-    "weather_info"        = "driving_weather",
-    "weather_info_other"  = "adverse_weather",
-    "weather_info_clouds" = "cloudy",
-    "gender_female"       = "female",
-    "gender_male"         = "male",
+    
+    # Driving dynamics
+    "energy_rot_rm_1m" = "Rot. energy (1-min mean)",
+    "energy_rot"       = "Rot. energy",
+    "energy_acc"       = "Acc. energy",
+    
+    # Weather
+    "weather_info"        = "Weather",
+    "weather_info_other"  = "Adverse weather",
+    "weather_info_clouds" = "Cloudy",
+    
+    # Demographics
+    "gender"         = "Gender",
+    "gender_female"  = "Female",
+    "gender_male"    = "Male",
+    "age"            = "Age",
+    
+    # Time
+    "day_period"           = "Day period",
+    "day_period_pm"        = "PM (12–24 h)",
+    "day_period_am"        = "AM (0–12 h)",
+    "day_period_afternoon" = "PM (12–24 h)",
+    "day_period_morning"   = "AM (0–12 h)",
+    
+    # Study day
+    "day_num"      = "Study day",
+    "day_num_day2" = "Day 2",
+    "day_num_day3" = "Day 3",
+    "day_num_day4" = "Day 4",
+    "day_num_day5" = "Day 5",
+    "day_num_day6" = "Day 6",
+    "day_num_day7" = "Day 7",
+    
+    # Personality
+    "openness"          = "Openness",
+    "agreeableness"     = "Agreeableness",
+    "conscientiousness" = "Conscientiousness",
+    "extraversion"      = "Extraversion",
+    "neuroticism"       = "Neuroticism",
+    
+    # Anxiety
+    "trait_anxiety" = "Trait anxiety",
+    "state_anxiety" = "State anxiety",
+    
+    # NASA-TLX
+    "md" = "Mental demand",
+    "pd" = "Physical demand",
+    "td" = "Temporal demand",
+    "p"  = "Performance",
+    "e"  = "Effort",
+    "f"  = "Frustration",
+    
     .default = x
   )
   
@@ -351,28 +411,31 @@ add_bl_hr_person <- function(dt) {
   stopifnot(is.data.table(dt))
   stopifnot("p_id" %in% names(dt))
   stopifnot("bl_hr" %in% names(dt))
-  
+
+  # Match the modeling script: estimate participant baseline from
+  # participant-day medians, merge it back to all rows, and then retain
+  # every row belonging to a participant with an estimable baseline.
   dt[, bl_hr_num := suppressWarnings(as.numeric(bl_hr))]
-  dt <- dt[is.finite(bl_hr_num)]
-  
+
   day_key <- make_day_key(dt)
   if (is.null(day_key)) {
     stop("Could not construct day key from day_num/days/dt_time.")
   }
   dt[, day_key := day_key]
-  
+
   by_day <- dt[
     is.finite(bl_hr_num) & !is.na(day_key),
     .(bl_hr_day = median(bl_hr_num, na.rm = TRUE)),
     by = .(p_id, day_key)
   ]
-  
+
   by_person <- by_day[
     , .(bl_hr_person = mean(bl_hr_day, na.rm = TRUE)),
     by = p_id
   ]
-  
-  merge(dt, by_person, by = "p_id", all.x = TRUE)
+
+  out <- merge(dt, by_person, by = "p_id", all.x = TRUE)
+  out[is.finite(bl_hr_person)]
 }
 
 is_numericish <- function(x) {
@@ -382,8 +445,8 @@ is_numericish <- function(x) {
 }
 
 dyn_base_vars <- c(
-  "speed", "atp", "jf", "ff", "ff_speed", "rtp", "energy_acc", "energy_rot",
-  "distance", "trip_distance", "trip_duration"
+  "speed", "ff", "ff_speed", "atp", "rtp", "jf",
+  "energy_acc", "energy_rot"
 )
 
 add_dynamics <- function(dt,
@@ -427,10 +490,6 @@ add_dynamics <- function(dt,
     }
   }
   
-  for (dv in intersect(c("distance", "trip_distance", "trip_duration"), vars)) {
-    dt[, paste0(dv, "_inc") := get(dv) - shift(get(dv), 1L, type = "lag"), by = id_col]
-  }
-  
   dt
 }
 
@@ -446,48 +505,116 @@ pretty_stratum <- function(x) {
 # ============================================================
 # LOCATE RUN FOLDER + RESOLUTION
 # ============================================================
-required_fig6_files <- c(
-  "feature_importance_grouped_DRIVING.csv",
-  "feature_importance_grouped_NONDRIVING_SEDENTARY.csv",
-  "feature_importance_terms_DRIVING.csv",
-  "feature_importance_terms_NONDRIVING_SEDENTARY.csv",
-  "compare_metrics_rawhr_overall_by_stratum.csv"
+required_fig6_inputs <- list(
+  grouped_driving = c(
+    "feature_importance_grouped_DRIVING.csv"
+  ),
+  grouped_nondriving = c(
+    "feature_importance_grouped_NONDRIVING_SEDENTARY.csv"
+  ),
+  terms_driving = c(
+    "feature_importance_terms_DRIVING.csv"
+  ),
+  terms_nondriving = c(
+    "feature_importance_terms_NONDRIVING_SEDENTARY.csv"
+  ),
+  metrics = c(
+    "compare_metrics_rawhr_by_fold_by_stratum.csv",
+    "compare_metrics_rawhr_overall_by_stratum.csv",
+    "compare_metrics_rawhr_pooled_oof_by_stratum.csv"
+  )
 )
 
-auto_pick_run_dir <- function(project_root, suffix_regex = "") {
+find_required_file <- function(run_dir, basename_required) {
+  hits <- list.files(
+    run_dir,
+    pattern = paste0("^", basename_required, "$"),
+    recursive = TRUE,
+    full.names = TRUE,
+    ignore.case = FALSE
+  )
+
+  if (length(hits) == 0L) return(NA_character_)
+
+  # Prefer the shallowest path; if duplicates remain, prefer the newest file.
+  rel <- substring(hits, nchar(run_dir) + 2L)
+  depth <- lengths(strsplit(rel, .Platform$file.sep, fixed = TRUE))
+  info <- file.info(hits)
+  ord <- order(depth, -as.numeric(info$mtime))
+  normalizePath(hits[ord[1]], mustWork = TRUE)
+}
+
+resolve_fig6_inputs <- function(run_dir) {
+  paths <- vapply(
+    names(required_fig6_inputs),
+    function(key) {
+      candidates <- required_fig6_inputs[[key]]
+      hits <- vapply(
+        candidates,
+        function(fn) find_required_file(run_dir, fn),
+        character(1)
+      )
+      hit <- hits[!is.na(hits)]
+      if (length(hit) == 0L) NA_character_ else unname(hit[1])
+    },
+    character(1)
+  )
+  names(paths) <- names(required_fig6_inputs)
+  paths
+}
+
+auto_pick_run_dir <- function(project_root, res_seconds) {
   base <- file.path(project_root, "Results", "nubi_ml")
   if (!dir.exists(base)) stop("Missing folder: ", base)
-  
+
   cand <- list.dirs(base, recursive = FALSE, full.names = TRUE)
   cand <- cand[file.info(cand)$isdir %in% TRUE]
-  
-  if (length(cand) == 0) {
+
+  if (length(cand) == 0L) {
     stop("No run folders found under: ", base)
   }
-  
-  has_required <- vapply(
-    cand,
-    function(d) all(file.exists(file.path(d, required_fig6_files))),
-    logical(1)
-  )
-  
-  cand <- cand[has_required]
-  
-  if (!is.null(suffix_regex) && nzchar(suffix_regex)) {
-    cand <- cand[grepl(suffix_regex, basename(cand), ignore.case = TRUE)]
-  }
-  
-  if (length(cand) == 0) {
+
+  # Manuscript reproduction uses only the selected temporal resolution.
+  res_pat <- paste0("(^|_)", res_seconds, "sec(_|$)")
+  cand <- cand[grepl(res_pat, basename(cand), ignore.case = TRUE, perl = TRUE)]
+
+  if (length(cand) == 0L) {
     stop(
-      "Could not find an ML run folder under Results/nubi_ml/ containing all Figure 6 inputs.\n",
-      "Required files:\n  ",
-      paste(required_fig6_files, collapse = "\n  "),
-      "\n\nAvailable folders:\n  ",
+      "Could not find a compatible ", res_seconds, "-sec ML run folder under: ", base,
+      "\nAvailable folders:\n  ",
       paste(basename(list.dirs(base, recursive = FALSE, full.names = TRUE)), collapse = "\n  ")
     )
   }
-  
-  cand[which.max(file.info(cand)$mtime)]
+
+  has_required <- vapply(
+    cand,
+    function(d) all(!is.na(resolve_fig6_inputs(d))),
+    logical(1)
+  )
+  cand_ok <- cand[has_required]
+
+  if (length(cand_ok) == 0L) {
+    inventory <- unlist(lapply(cand, function(d) {
+      csvs <- list.files(d, pattern = "\\.csv$", recursive = TRUE, full.names = FALSE)
+      paste0("Run: ", basename(d), "\n  CSV files found:\n  ", paste(csvs, collapse = "\n  "))
+    }))
+
+    stop(
+      "Could not find a compatible ML run containing all Figure 6 inputs, even with recursive search.\n",
+      "Required Figure 6 inputs (accepted basenames):\n  ",
+      paste(
+        vapply(
+          names(required_fig6_inputs),
+          function(key) paste0(key, ": ", paste(required_fig6_inputs[[key]], collapse = " OR ")),
+          character(1)
+        ),
+        collapse = "\n  "
+      ),
+      "\n\n", paste(inventory, collapse = "\n\n")
+    )
+  }
+
+  cand_ok[which.max(file.info(cand_ok)$mtime)]
 }
 
 if (!is.null(RUN_DIR_NAME)) {
@@ -496,19 +623,26 @@ if (!is.null(RUN_DIR_NAME)) {
     stop("Specified RUN_DIR_NAME does not exist: ", RUN_DIR)
   }
 } else {
-  RUN_DIR <- auto_pick_run_dir(project_root, RUN_DIR_SUFFIX_REGEX)
+  RUN_DIR <- auto_pick_run_dir(project_root, RES_SECONDS)
 }
 
 RUN_DIR <- normalizePath(RUN_DIR, mustWork = TRUE)
-message("Using RUN_DIR: ", RUN_DIR)
+FIG6_INPUT_PATHS <- resolve_fig6_inputs(RUN_DIR)
 
-bn <- basename(RUN_DIR)
-m <- stringr::str_match(bn, "_(\\d+)sec_")
-if (is.na(m[1, 2])) {
-  stop("Could not parse resolution from RUN_DIR name: ", bn)
+if (any(is.na(FIG6_INPUT_PATHS))) {
+  missing_names <- names(FIG6_INPUT_PATHS)[is.na(FIG6_INPUT_PATHS)]
+  stop(
+    "Selected RUN_DIR is missing required Figure 6 input file(s): ",
+    paste(missing_names, collapse = ", ")
+  )
 }
-RES_SECONDS <- as.integer(m[1, 2])
-message("Parsed RES_SECONDS = ", RES_SECONDS)
+
+message("Using RUN_DIR: ", RUN_DIR)
+message("Analysis resolution: ", RES_SECONDS, " sec")
+message("Resolved Figure 6 inputs:")
+for (key in names(FIG6_INPUT_PATHS)) {
+  message("  ", key, " -> ", FIG6_INPUT_PATHS[[key]])
+}
 
 STAMP <- format(Sys.time(), "%Y%m%d_%H%M%S")
 fig_subdir_name <- sprintf(
@@ -532,38 +666,71 @@ if (!file.exists(data_path)) {
 # ============================================================
 # READ MODEL OUTPUTS
 # ============================================================
-read_imp <- function(run_dir, kind = c("grouped", "terms"), stratum) {
+read_imp <- function(kind = c("grouped", "terms"), stratum) {
   kind <- match.arg(kind)
-  
-  fn <- if (kind == "grouped") {
-    paste0("feature_importance_grouped_", stratum, ".csv")
+
+  key <- if (kind == "grouped" && stratum == "DRIVING") {
+    "grouped_driving"
+  } else if (kind == "grouped" && stratum == "NONDRIVING_SEDENTARY") {
+    "grouped_nondriving"
+  } else if (kind == "terms" && stratum == "DRIVING") {
+    "terms_driving"
   } else {
-    paste0("feature_importance_terms_", stratum, ".csv")
+    "terms_nondriving"
   }
-  
-  path <- file.path(run_dir, fn)
-  if (!file.exists(path)) stop("Missing importance file: ", path)
-  
+
+  path <- unname(FIG6_INPUT_PATHS[[key]])
+  if (is.null(path) || is.na(path) || !file.exists(path)) {
+    stop("Missing importance file after recursive resolution for key: ", key)
+  }
+
   read_csv(path, show_col_types = FALSE)
 }
 
 STRATA <- c("DRIVING", "NONDRIVING_SEDENTARY")
 
 imp_grouped_all <- bind_rows(
-  read_imp(RUN_DIR, "grouped", "DRIVING") %>% mutate(stratum = "DRIVING"),
-  read_imp(RUN_DIR, "grouped", "NONDRIVING_SEDENTARY") %>% mutate(stratum = "NONDRIVING_SEDENTARY")
+  read_imp("grouped", "DRIVING") %>% mutate(stratum = "DRIVING"),
+  read_imp("grouped", "NONDRIVING_SEDENTARY") %>% mutate(stratum = "NONDRIVING_SEDENTARY")
 )
 
 imp_terms_all <- bind_rows(
-  read_imp(RUN_DIR, "terms", "DRIVING") %>% mutate(stratum = "DRIVING"),
-  read_imp(RUN_DIR, "terms", "NONDRIVING_SEDENTARY") %>% mutate(stratum = "NONDRIVING_SEDENTARY")
+  read_imp("terms", "DRIVING") %>% mutate(stratum = "DRIVING"),
+  read_imp("terms", "NONDRIVING_SEDENTARY") %>% mutate(stratum = "NONDRIVING_SEDENTARY")
 )
 
-metrics_path <- file.path(RUN_DIR, "compare_metrics_rawhr_overall_by_stratum.csv")
-if (!file.exists(metrics_path)) {
-  stop("Missing metrics file: ", metrics_path)
+metrics_path <- unname(FIG6_INPUT_PATHS[["metrics"]])
+if (is.null(metrics_path) || is.na(metrics_path) || !file.exists(metrics_path)) {
+  stop("Missing a compatible raw-HR metrics file after recursive resolution.")
 }
-metrics_raw <- read_csv(metrics_path, show_col_types = FALSE)
+
+metrics_basename <- basename(metrics_path)
+message("Panel D metrics source: ", metrics_basename)
+
+metrics_raw <- read_csv(metrics_path, show_col_types = FALSE) %>%
+  mutate(
+    model = case_when(
+      model %in% c("baseline_offset", "baseline_plus_offset", "baseline+offset") ~ "baseline_offset",
+      model %in% c("enet", "elastic_net", "elasticnet") ~ "enet",
+      TRUE ~ as.character(model)
+    ),
+    .metric = case_when(
+      .metric %in% c("rsq_cor", "rsq", "r2_cor", "r_squared_cor") ~ "rsq_cor",
+      .metric %in% c("rmse") ~ "rmse",
+      TRUE ~ as.character(.metric)
+    )
+  )
+
+validate_columns <- function(df, required, label) {
+  missing <- setdiff(required, names(df))
+  if (length(missing) > 0L) {
+    stop(label, " is missing required column(s): ", paste(missing, collapse = ", "))
+  }
+}
+
+validate_columns(imp_grouped_all, c("stratum", "group", "importance"), "Grouped importance inputs")
+validate_columns(imp_terms_all, c("stratum", "term", "estimate"), "Term importance inputs")
+validate_columns(metrics_raw, c("stratum", "model", ".metric", ".estimate"), "Metric inputs")
 
 # ============================================================
 # LOAD FINAL MASTER DATA
@@ -586,6 +753,15 @@ dt <- label_strata(dt, context_col)
 dt <- dt[stratum_label %in% STRATA]
 if (nrow(dt) == 0) {
   stop("After context labeling, no rows matched DRIVING/NONDRIVING_SEDENTARY.")
+}
+
+# Match the modeling analysis: Figure 6 uses observations with an observed
+# raw-heart-rate outcome. This also aligns diagnostic counts with the
+# manuscript inventory.
+dt[, raw_hr := suppressWarnings(as.numeric(raw_hr))]
+dt <- dt[is.finite(raw_hr)]
+if (nrow(dt) == 0) {
+  stop("No DRIVING/NONDRIVING_SEDENTARY rows remained after requiring finite raw_hr.")
 }
 
 dt <- add_bl_hr_person(dt)
@@ -688,9 +864,9 @@ pA <- ggplot(grpA_plot, aes(x = group_ord, y = importance, fill = stratum_pretty
   facet_wrap(~stratum_pretty, scales = "free_y") +
   scale_fill_manual(values = c("Driving" = COL_DRIVE, "Non-driving sedentary" = COL_NOND)) +
   labs(
-    title = "A. Grouped ENet importance beyond baseline+tax",
+    title = "A. Grouped covariate importance in ENet",
     x = NULL,
-    y = "Grouped importance"
+    y = "|Standardized coefficient| (summed within predictor)"
   ) +
   theme_minimal(base_size = 11) +
   theme(
@@ -779,7 +955,8 @@ pick_top_continuous <- function(stratum_name, imp_grouped, imp_terms, dt_stratum
     pull(group)
   
   drop_like <- c(
-    "sex", "gender", "day_num", "days", "weather_info", "trip_time",
+    "sex", "gender", "day_num", "days", "day_period", "day_type",
+    "in_radius", "weather_info", "trip_time",
     "p_id", "activity", "activity3", "data_source", "stratum_label"
   )
   cand <- cand[!(cand %in% drop_like)]
@@ -808,19 +985,25 @@ pick_top_continuous <- function(stratum_name, imp_grouped, imp_terms, dt_stratum
 }
 
 make_effect_curve <- function(dt_stratum, feature, beta, stratum_name) {
-  x <- suppressWarnings(as.numeric(dt_stratum[[feature]]))
-  x <- x[is.finite(x)]
-  
-  if (length(x) < 50) return(NULL)
-  
-  mu  <- mean(x)
-  sdv <- sd(x)
+  x_raw <- suppressWarnings(as.numeric(dt_stratum[[feature]]))
+  x_obs <- x_raw[is.finite(x_raw)]
+
+  if (length(x_obs) < 50) return(NULL)
+
+  # Match the full-refit recipe used by the ENet model:
+  # step_impute_median() followed by step_normalize().
+  med <- median(x_obs, na.rm = TRUE)
+  x_imp <- x_raw
+  x_imp[!is.finite(x_imp)] <- med
+
+  mu  <- mean(x_imp)
+  sdv <- sd(x_imp)
   if (!is.finite(sdv) || sdv == 0) return(NULL)
-  
-  qlo <- as.numeric(quantile(x, Q_LO, na.rm = TRUE))
-  qhi <- as.numeric(quantile(x, Q_HI, na.rm = TRUE))
+
+  qlo <- as.numeric(quantile(x_obs, Q_LO, na.rm = TRUE))
+  qhi <- as.numeric(quantile(x_obs, Q_HI, na.rm = TRUE))
   if (!is.finite(qlo) || !is.finite(qhi) || qlo == qhi) return(NULL)
-  
+
   grid <- seq(qlo, qhi, length.out = N_GRID)
   effect <- beta * ((grid - mu) / sdv)
   
@@ -909,7 +1092,7 @@ if (nrow(curveC) == 0) {
 }
 
 # ============================================================
-# PANEL D: ENET GAIN BEYOND BASELINE+OFFSET
+# PANEL D: ENET GAIN OVER BASELINE+OFFSET
 # ============================================================
 get_metric <- function(metrics_df, model_name, metric_name, stratum_name) {
   metrics_df %>%
@@ -927,8 +1110,8 @@ for (s in STRATA) {
   rmse_b <- get_metric(metrics_raw, "baseline_offset", "rmse", s)
   rmse_e <- get_metric(metrics_raw, "enet",            "rmse", s)
   
-  rsq_b  <- get_metric(metrics_raw, "baseline_offset", "rsq",  s)
-  rsq_e  <- get_metric(metrics_raw, "enet",            "rsq",  s)
+  rsq_b  <- get_metric(metrics_raw, "baseline_offset", "rsq_cor", s)
+  rsq_e  <- get_metric(metrics_raw, "enet",            "rsq_cor", s)
   
   gain_rows[[length(gain_rows) + 1]] <- tibble(
     stratum = s,
@@ -948,12 +1131,20 @@ for (s in STRATA) {
 gainD <- bind_rows(gain_rows) %>%
   filter(is.finite(delta))
 
+if (nrow(gainD) != 4L) {
+  stop(
+    "Panel D expected four finite gains (two metrics x two strata) but found ",
+    nrow(gainD), ".\n",
+    "Resolved metrics file: ", metrics_path
+  )
+}
+
 if (nrow(gainD) == 0) {
   stop(
     "Panel D has zero rows after computing deltas.\n",
-    "Check compare_metrics_rawhr_overall_by_stratum.csv for:\n",
+    "Check the resolved raw-HR metrics file for:\n",
     "  model in {baseline_offset, enet}\n",
-    "  .metric in {rmse, rsq}\n",
+    "  .metric in {rmse, rsq_cor}\n",
     "  stratum in {DRIVING, NONDRIVING_SEDENTARY}"
   )
 }
@@ -968,12 +1159,12 @@ pD <- ggplot(
     scales = "free_y",
     labeller = as_labeller(c(
       d_rmse = "\u0394RMSE [bpm]",
-      d_rsq  = "\u0394R\u00b2"
+      d_rsq  = "\u0394r\u00b2"
     ))
   ) +
   scale_fill_manual(values = c("Driving" = COL_DRIVE, "Non-driving sedentary" = COL_NOND)) +
   labs(
-    title = "D. ENet gain beyond baseline+tax",
+    title = "D. ENet gain over baseline + context-specific offset",
     x = NULL,
     y = "Improvement (positive = better)"
   ) +
@@ -985,6 +1176,17 @@ pD <- ggplot(
     plot.title = element_text(face = "bold")
   )
 
+safe_save_pdf <- function(plot_obj, path, width, height) {
+  ok <- tryCatch({
+    ggsave(path, plot_obj, width = width, height = height, device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+
+  if (!ok) {
+    ggsave(path, plot_obj, width = width, height = height, device = "pdf", useDingbats = FALSE)
+  }
+}
+
 # ============================================================
 # COMPOSE FIGURE
 # ============================================================
@@ -993,7 +1195,7 @@ fig6 <- (pA | pB) / (pC | pD)
 out_pdf <- file.path(fig_out_dir, "Figure6_ENet_Modulators.pdf")
 out_png <- file.path(fig_out_dir, "Figure6_ENet_Modulators.png")
 
-ggsave(out_pdf, fig6, width = 14, height = 10, device = grDevices::cairo_pdf)
+safe_save_pdf(fig6, out_pdf, width = 14, height = 10)
 ggsave(out_png, fig6, width = 14, height = 10, dpi = 300)
 
 # ============================================================
@@ -1014,6 +1216,7 @@ diag_lines <- c(
   paste0("RUN_DIR: ", RUN_DIR),
   paste0("RES_SECONDS: ", RES_SECONDS),
   paste0("Data file: ", data_path),
+  paste0("Panel D metrics file: ", metrics_path),
   paste0("Output directory: ", fig_out_dir),
   "",
   "Counts by stratum:"
@@ -1047,6 +1250,22 @@ diag_lines <- c(
 )
 
 writeLines(diag_lines, con = file.path(fig_out_dir, "diagnostics_summary.txt"))
+
+run_log <- c(
+  paste0("Script: 06_figure6_enet_modulators.R"),
+  paste0("Timestamp: ", STAMP),
+  paste0("Resolution: ", RES_SECONDS, " sec"),
+  paste0("RUN_DIR: ", RUN_DIR),
+  paste0("Data file: ", data_path),
+  paste0("Panel D metrics file: ", metrics_path),
+  paste0("Output directory: ", fig_out_dir),
+  paste0("Panel A rows: ", nrow(grpA)),
+  paste0("Panel B rows: ", nrow(termB)),
+  paste0("Panel C selected modulators: ", nrow(panelC_selected)),
+  paste0("Panel D rows: ", nrow(gainD)),
+  "DONE"
+)
+writeLines(run_log, con = file.path(fig_out_dir, "run_log.txt"))
 
 message("Wrote: ", out_pdf)
 message("Wrote: ", out_png)

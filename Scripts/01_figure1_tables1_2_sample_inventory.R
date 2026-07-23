@@ -1,17 +1,16 @@
 # ============================================================
-# 01_figure1_table1_exploratory_inventory.R
+# 01_figure1_tables1_2_sample_inventory.R
 #
 # PURPOSE
-#   Generate Figure 1, Table 1, and the key-variable missingness
-#   summary for the npj Digital Medicine manuscript:
+#   Generate Figure 1 and Tables 1–2 for the revised npj Digital Public Health manuscript:
 #
-#     From Instantaneous Heart Rate to Long-Horizon
-#     Cardiovascular Burden in Naturalistic Daily Life
+#     Wearable sensing reveals the structure of cardiac
+#     activation associated with everyday driving
 #
 #   The script summarizes the curated NUBI analysis dataset,
 #   including participant coverage, activity-context distribution,
-#   participant-level traits, NASA-TLX subscales, baseline and
-#   raw heart-rate summaries, temporal context, weather support,
+#   participant-level traits, NASA-TLX subscales, raw and baseline
+#   heart-rate summaries, temporal context, weather conditions,
 #   and driving-dynamics variables.
 #
 # INPUT
@@ -23,19 +22,19 @@
 #   activity3 == "non_driving_physical_activity"
 #
 # MAJOR OUTPUTS
-#   The script writes Figure 1, Table 1, a missingness summary,
-#   and diagnostic files under:
+#   The script writes Figure 1, Table 1, Table 2, and diagnostic
+#   files under:
 #
-#     Results/paper_figs/<timestamp>_60sec_figure1_table1_exploratory_inventory/
+#     Results/paper_figs/<timestamp>_60sec_figure1_tables1_2_sample_inventory/
 #
 #   Main outputs:
 #
-#     Figures/Figure1-Table1.pdf
-#     Figures/Figure1-Table1.png
-#     Tables/Table1_CohortDataInventory.csv
-#     Tables/Table1_CohortDataInventory.tex
-#     Tables/Table1_Missingness_KeyVars.csv
-#     Tables/Table1_Missingness_KeyVars.tex
+#     Figures/Figure1_ExploratorySampleSummary.pdf
+#     Figures/Figure1_ExploratorySampleSummary.png
+#     Tables/Table1_DataInventory.csv
+#     Tables/Table1_DataInventory.tex
+#     Tables/Table2_MissingnessSummary.csv
+#     Tables/Table2_MissingnessSummary.tex
 #     Diagnostics/Diagnostic_DrivingOnlyLeakage_ByContext.csv
 #
 # REPOSITORY SCOPE
@@ -45,7 +44,7 @@
 #
 # PRIVACY NOTE
 #   Direct GPS coordinate columns are removed from the public
-#   dataset and are not required for this figure or table.
+#   dataset and are not required for these outputs.
 # ============================================================
 
 suppressPackageStartupMessages({
@@ -55,14 +54,11 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
   library(stringr)
-  library(forcats)
   library(scales)
   library(patchwork)
-  library(ggtext)
 })
 
 options(warn = 1)
-set.seed(20260225)
 
 # ----------------------------
 # USER TOGGLES
@@ -81,46 +77,40 @@ ACT3_ND_SED  <- "non_driving_sedentary"
 ACT3_ND_PA   <- "non_driving_physical_activity"
 
 # ----------------------------
-# Robust wd = Scripts/
+# Resolve repository paths
 # ----------------------------
-this_script <- tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) NA_character_)
-if (!is.na(this_script) && file.exists(this_script)) setwd(dirname(this_script))
-message("Working directory (Scripts): ", getwd())
+# The script is intended to live in <repository>/Scripts/.  Resolve the
+# repository root from the script location so execution does not depend on
+# the caller's current working directory.
+command_args <- commandArgs(trailingOnly = FALSE)
+file_arg <- grep("^--file=", command_args, value = TRUE)
 
-project_root <- normalizePath(file.path(getwd(), ".."), mustWork = TRUE)
-
-# ----------------------------
-# Resolution picker
-# ----------------------------
-# The public repository currently includes the curated 60-second dataset:
-#
-#   Data/NUBI_Data_60sec_Level_MASTER_CLEAN.csv
-#
-# The picker is retained so the same script can be reused if 10-sec or
-# 30-sec analysis datasets are added later.
-
-pick_resolution <- function(default = 60L) {
-  cat(
-    "\nChoose dataset resolution:\n",
-    "  1) 10 sec  [requires Data/NUBI_Data_10sec_Level_MASTER_CLEAN.csv]\n",
-    "  2) 30 sec  [requires Data/NUBI_Data_30sec_Level_MASTER_CLEAN.csv]\n",
-    "  3) 60 sec  [included in this repository]\n",
-    sep = ""
-  )
-  
-  ans <- trimws(readline(
-    sprintf("Enter 10 / 30 / 60 (or 1/2/3). Press Enter for %d sec: ", default)
-  ))
-  
-  if (ans == "") return(as.integer(default))
-  if (ans %in% c("1", "10")) return(10L)
-  if (ans %in% c("2", "30")) return(30L)
-  if (ans %in% c("3", "60")) return(60L)
-  
-  stop("Invalid entry: ", ans, " (expected 10/30/60 or 1/2/3)")
+this_script <- if (length(file_arg) > 0L) {
+  normalizePath(sub("^--file=", "", file_arg[1]), mustWork = TRUE)
+} else {
+  tryCatch(normalizePath(sys.frame(1)$ofile, mustWork = TRUE),
+           error = function(e) NA_character_)
 }
 
-RES_SECONDS <- pick_resolution(default = 60L)
+if (is.na(this_script)) {
+  stop("Could not determine the script location. Run with Rscript or source the file from Scripts/.")
+}
+
+script_dir <- dirname(this_script)
+project_root <- normalizePath(file.path(script_dir, ".."), mustWork = TRUE)
+message("Script directory: ", script_dir)
+message("Repository root: ", project_root)
+
+# ----------------------------
+# Analysis resolution
+# ----------------------------
+# The public repository includes the curated 60-second dataset.
+# Set the environment variable NUBI_RES_SECONDS to 10 or 30 only
+# when the corresponding curated dataset has also been added to Data/.
+RES_SECONDS <- suppressWarnings(as.integer(Sys.getenv("NUBI_RES_SECONDS", "60")))
+if (is.na(RES_SECONDS) || !RES_SECONDS %in% c(10L, 30L, 60L)) {
+  stop("NUBI_RES_SECONDS must be one of 10, 30, or 60.")
+}
 
 # ----------------------------
 # Output folders
@@ -130,7 +120,7 @@ out_dir <- file.path(
   project_root,
   "Results",
   "paper_figs",
-  paste0(stamp, "_", RES_SECONDS, "sec_figure1_table1_exploratory_inventory")
+  paste0(stamp, "_", RES_SECONDS, "sec_figure1_tables1_2_sample_inventory")
 )
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -168,7 +158,8 @@ if (!file.exists(in_path)) {
   )
 }
 
-log_msg("Script: 01_figure1_table1_exploratory_inventory.R")
+log_msg("SCRIPT VERSION: MANUSCRIPT-SYNCHRONIZED FINAL 2026-07-23")
+log_msg("Script: 01_figure1_tables1_2_sample_inventory.R")
 log_msg("Resolution: ", RES_SECONDS, " sec")
 log_msg("Input: ", in_path)
 log_msg("Output directory: ", out_dir)
@@ -459,16 +450,16 @@ if (nrow(dt_drive) == 0) {
 }
 
 # ============================================================
-# Table 1: Cohort & data inventory
+# Table 1: Data inventory (manuscript synchronized)
 # ============================================================
 overall_tbl <- data.table(
-  group = "OVERALL",
+  activity_type = "OVERALL",
   participants = uniqueN(dt$p_id),
   participant_days = uniqueN(dt[, .(p_id, day_key)]),
   calendar_days = uniqueN(dt$date_local),
   rows = nrow(dt),
   hours = nrow(dt) * RES_SECONDS / 3600,
-  pct_rows = 1
+  pct_rows = 100
 )
 
 ctx_tbl <- dt[, .(
@@ -476,273 +467,299 @@ ctx_tbl <- dt[, .(
   participant_days = uniqueN(data.table(p_id, day_key)),
   calendar_days = uniqueN(date_local),
   rows = .N
-), by = .(strata3)]
-
-ctx_tbl[, hours := rows * RES_SECONDS / 3600]
-ctx_tbl[, pct_rows := rows / nrow(dt)]
-ctx_tbl[, group := as.character(strata3)]
-ctx_tbl <- ctx_tbl[, .(group, participants, participant_days, calendar_days, rows, hours, pct_rows)]
-
-table1_rows <- rbind(overall_tbl, ctx_tbl, fill = TRUE)
-table1_rows[, driving_trips := NA_integer_]
-table1_rows[, median_trip_duration_min := NA_real_]
-table1_rows[group %in% c("OVERALL","DRIVING"), `:=`(
-  driving_trips = driving_trips_n,
-  median_trip_duration_min = driving_trip_median_min
+), by = strata3]
+ctx_tbl[, `:=`(
+  hours = rows * RES_SECONDS / 3600,
+  pct_rows = 100 * rows / nrow(dt),
+  activity_type = as.character(strata3)
 )]
+ctx_tbl <- ctx_tbl[, .(activity_type, participants, participant_days,
+                       calendar_days, rows, hours, pct_rows)]
 
-table1_rows[, group := factor(group, levels = c("OVERALL","DRIVING","NONDRIVING_SEDENTARY","PHYSICAL_ACTIVITY"))]
-setorder(table1_rows, group)
+table1_manuscript <- rbind(overall_tbl, ctx_tbl, fill = TRUE)
+table1_manuscript[, activity_type := factor(
+  activity_type,
+  levels = c("OVERALL", "DRIVING", "NONDRIVING_SEDENTARY", "PHYSICAL_ACTIVITY")
+)]
+setorder(table1_manuscript, activity_type)
 
-out_table1_csv <- file.path(table_dir, "Table1_CohortDataInventory.csv")
-fwrite(table1_rows, out_table1_csv)
+# Automatic manuscript checks apply to the published 60-s analysis only.
+if (RES_SECONDS == 60L) {
+  expected_t1 <- data.table(
+    activity_type = c("OVERALL", "DRIVING", "NONDRIVING_SEDENTARY", "PHYSICAL_ACTIVITY"),
+    participants = c(57L, 57L, 57L, 44L),
+    participant_days = c(393L, 379L, 392L, 102L),
+    calendar_days = c(225L, 222L, 225L, 88L),
+    rows = c(177318L, 18487L, 153120L, 5711L),
+    hours = c(2955.3, 308.1, 2552.0, 95.2),
+    pct_rows = c(100.0, 10.4, 86.4, 3.2)
+  )
+  observed_t1 <- copy(table1_manuscript)
+  observed_t1[, activity_type := as.character(activity_type)]
+  stopifnot(
+    identical(observed_t1$activity_type, expected_t1$activity_type),
+    identical(observed_t1$participants, expected_t1$participants),
+    identical(observed_t1$participant_days, expected_t1$participant_days),
+    identical(observed_t1$calendar_days, expected_t1$calendar_days),
+    identical(observed_t1$rows, expected_t1$rows),
+    all.equal(round(observed_t1$hours, 1), expected_t1$hours, tolerance = 1e-8),
+    all.equal(round(observed_t1$pct_rows, 1), expected_t1$pct_rows, tolerance = 1e-8),
+    identical(driving_trips_n, 973L),
+    isTRUE(all.equal(round(driving_trip_median_min, 1), 15.0, tolerance = 1e-8))
+  )
+  log_msg("Table 1 manuscript checks passed.")
+}
 
-out_table1_tex <- file.path(table_dir, "Table1_CohortDataInventory.tex")
-t1 <- copy(table1_rows)
-t1[, hours_fmt := fmt_num(hours, 1)]
-t1[, rows_fmt  := fmt_int(rows)]
-t1[, pct_fmt   := fmt_pct(pct_rows, 1)]
-t1[, participants_fmt := fmt_int(participants)]
-t1[, participant_days_fmt := fmt_int(participant_days)]
-t1[, calendar_days_fmt := fmt_int(calendar_days)]
-setorder(t1, group)
+out_table1_csv <- file.path(table_dir, "Table1_DataInventory.csv")
+fwrite(table1_manuscript, out_table1_csv)
+
+out_table1_tex <- file.path(table_dir, "Table1_DataInventory.tex")
+t1 <- copy(table1_manuscript)
+t1[, `:=`(
+  activity_type = as.character(activity_type),
+  participants_fmt = fmt_int(participants),
+  participant_days_fmt = fmt_int(participant_days),
+  calendar_days_fmt = fmt_int(calendar_days),
+  rows_fmt = fmt_int(rows),
+  hours_fmt = fmt_num(hours, 1),
+  pct_fmt = paste0(fmt_num(pct_rows, 1), "\\%")
+)]
 
 latex_table_lines <- c(
   "% ============================================================",
-  "% Table 1 --- Cohort & data inventory (auto-generated)",
+  "% Table 1 --- Data inventory (manuscript synchronized)",
   "% ============================================================",
   "",
   "\\begin{table}[!htbp]",
   "\\centering",
-  "\\caption{\\textbf{Table 1 --- Cohort \\& data inventory.} Overall and by context at the chosen sampling resolution. Context-specific support counts are computed within each context.}",
+  "\\caption{\\textbf{Table 1. Data inventory.} Participant coverage and 60-s sample distribution by activity type.}",
   "\\label{tab:cohort_inventory}",
   "\\begin{tabular}{lrrrrrr}",
   "\\toprule",
-  "Group & Participants & Part.-days & Cal.-days & Rows & Hours & \\% rows \\\\",
+  "Activity type & Participants & Participant-days & Calendar-days & Rows & Hours & \\% rows \\\\",
   "\\midrule"
 )
 for (i in seq_len(nrow(t1))) {
   latex_table_lines <- c(
     latex_table_lines,
     sprintf("%s & %s & %s & %s & %s & %s & %s \\\\",
-            as.character(t1$group[i]),
-            t1$participants_fmt[i],
-            t1$participant_days_fmt[i],
-            t1$calendar_days_fmt[i],
-            t1$rows_fmt[i],
-            t1$hours_fmt[i],
-            t1$pct_fmt[i])
+            t1$activity_type[i], t1$participants_fmt[i],
+            t1$participant_days_fmt[i], t1$calendar_days_fmt[i],
+            t1$rows_fmt[i], t1$hours_fmt[i], t1$pct_fmt[i])
   )
 }
 latex_table_lines <- c(
   latex_table_lines,
   "\\bottomrule",
   "\\end{tabular}",
-  "",
-  sprintf("%% DRIVING trips counted from collapsed real trips only. Trips: %s",
-          ifelse(is.na(driving_trips_n), "NA", fmt_int(driving_trips_n))),
-  sprintf("%% Median trip duration (min): %s",
-          ifelse(is.na(driving_trip_median_min), "NA", fmt_num(driving_trip_median_min, 1))),
   "\\end{table}",
   ""
 )
 writeLines(latex_table_lines, con = out_table1_tex)
-
 log_msg("Wrote Table 1 CSV: ", out_table1_csv)
 log_msg("Wrote Table 1 LaTeX: ", out_table1_tex)
 
 # ============================================================
-# Missingness: CSV + LaTeX
+# Table 2: Missingness summary (manuscript synchronized)
 # ============================================================
-miss_rows <- list()
-
-tmp <- dt[, .(
-  unit = "row",
-  n_units = .N,
-  miss_pct = 100 * mean(!(is.finite(suppressWarnings(as.numeric(raw_hr)))))
-), by = .(strata3)]
-tmp[, variable := "raw_hr"]
-miss_rows[["raw_hr"]] <- tmp
-
+# Baseline missingness: one row only, evaluated at participant-day level.
 bl_day <- dt[, .(
   has_bl = any(is.finite(suppressWarnings(as.numeric(bl_hr))))
 ), by = .(p_id, day_key)]
-
-overall <- data.table(
-  variable = "bl_hr",
-  strata3 = "OVERALL",
+baseline_row <- data.table(
+  section = "HEART RATE AND BASELINE VARIABLES",
+  variable = "HRbase,id",
+  context = "OVERALL",
   unit = "participant-day",
-  n_units = nrow(bl_day),
-  miss_pct = 100 * (1 - mean(bl_day$has_bl))
+  n = nrow(bl_day),
+  missing_pct = 100 * (1 - mean(bl_day$has_bl))
 )
 
-byctx <- dt[, .(
-  has_bl = any(is.finite(suppressWarnings(as.numeric(bl_hr))))
-), by = .(p_id, day_key, strata3)]
-byctx_sum <- byctx[, .(
-  variable = "bl_hr",
-  unit = "participant-day",
-  n_units = .N,
-  miss_pct = 100 * (1 - mean(has_bl))
-), by = .(strata3)]
-miss_rows[["bl_hr"]] <- rbind(overall, byctx_sum, fill = TRUE)
+# Raw HR missingness by behavioral context.
+raw_hr_rows <- dt[, .(
+  n = .N,
+  missing_pct = 100 * mean(!is.finite(suppressWarnings(as.numeric(raw_hr))))
+), by = strata3]
+raw_hr_rows[, `:=`(
+  section = "HEART RATE AND BASELINE VARIABLES",
+  variable = "HRraw",
+  context = as.character(strata3),
+  unit = "row"
+)]
+raw_hr_rows <- raw_hr_rows[, .(section, variable, context, unit, n, missing_pct)]
 
-nasa_vars <- intersect(c("md","pd","td","p","e","f"), names(dt))
-if (length(nasa_vars) > 0 && "day_period" %in% names(dt)) {
-  
-  dt[, day_period_clean := trimws(as.character(day_period))]
-  dt[tolower(day_period_clean) %in% c("", "na", "n/a", "null", "unknown"),
-     day_period_clean := NA_character_]
-  
-  eligible <- dt[!is.na(day_period_clean),
-                 .(drove = any(strata3 == "DRIVING")),
-                 by = .(p_id, day_key, day_period_clean)]
-  eligible <- eligible[drove == TRUE]
-  setkey(eligible, p_id, day_key, day_period_clean)
-  
-  if (nrow(eligible) > 0) {
-    for (v in nasa_vars) {
-      tmpv <- dt[!is.na(day_period_clean), .(
-        has = any(is.finite(suppressWarnings(as.numeric(get(v)))))
-      ), by = .(p_id, day_key, day_period_clean)]
-      setkey(tmpv, p_id, day_key, day_period_clean)
-      
-      tmp2 <- tmpv[eligible, nomatch = 0]
-      
-      miss_rows[[paste0("nasa_",v)]] <- tmp2[, .(
-        variable = v,
-        strata3  = "OVERALL",
-        unit     = "participant-day-period (DRIVING-present)",
-        n_units  = .N,
-        miss_pct = 100 * (1 - mean(has))
-      )]
-    }
-  } else {
-    for (v in nasa_vars) {
-      miss_rows[[paste0("nasa_",v)]] <- data.table(
-        variable = v,
-        strata3 = "OVERALL",
-        unit = "participant-day-period (DRIVING-present)",
-        n_units = 0,
-        miss_pct = NA_real_
-      )
-    }
-  }
-}
-
-drive_vars_for_miss <- intersect(
-  c("speed","ff","ff_speed","atp","rtp","jf","energy_acc","energy_rot","distance"),
-  names(dt)
+# Driving dynamics and vehicle variables, in exact manuscript order.
+drive_specs <- data.table(
+  source = c("atp", "ff", "ff_speed", "speed", "distance", "rtp", "jf",
+             "energy_acc", "energy_rot"),
+  variable = c("ATP", "FF", "FF speed", "Speed", "Distance", "RTP",
+               "Jam factor", "Hand energy (acceleration)",
+               "Hand energy (rotation)")
 )
-if (length(drive_vars_for_miss) > 0) {
-  for (v in drive_vars_for_miss) {
-    tmpv <- dt[strata3 == "DRIVING", .(
-      unit = "row (DRIVING only)",
-      n_units = .N,
-      miss_pct = 100 * mean(!(is.finite(suppressWarnings(as.numeric(get(v))))))
-    )]
-    tmpv[, `:=`(variable = v, strata3 = "DRIVING")]
-    miss_rows[[paste0("drive_",v)]] <- tmpv
-  }
+drive_rows <- rbindlist(lapply(seq_len(nrow(drive_specs)), function(i) {
+  v <- drive_specs$source[i]
+  data.table(
+    section = "DRIVING DYNAMICS AND VEHICLE VARIABLES",
+    variable = drive_specs$variable[i],
+    context = "DRIVING",
+    unit = "row",
+    n = nrow(dt_drive),
+    missing_pct = 100 * mean(!is.finite(suppressWarnings(as.numeric(dt_drive[[v]]))))
+  )
+}))
+
+# Trip-level variables, based on collapsed unique driving trips.
+trip_rows <- data.table(
+  section = "TRIP-LEVEL VARIABLES",
+  variable = c("Trip ID", "Trip distance", "Trip duration"),
+  context = "DRIVING",
+  unit = "trip",
+  n = rep(nrow(trip_level_dt), 3L),
+  missing_pct = c(
+    if (nrow(trip_level_dt) > 0) 0 else NA_real_,
+    if (nrow(trip_level_dt) > 0) 100 * mean(!is.finite(trip_level_dt$trip_distance_last)) else NA_real_,
+    if (nrow(trip_level_dt) > 0) 100 * mean(!is.finite(trip_level_dt$trip_duration_first)) else NA_real_
+  )
+)
+
+# TLX missingness at participant-day-period level, restricted to periods with driving.
+dt[, day_period_clean := trimws(as.character(day_period))]
+dt[tolower(day_period_clean) %in% c("", "na", "n/a", "null", "unknown"),
+   day_period_clean := NA_character_]
+eligible_tlx <- dt[!is.na(day_period_clean),
+                   .(drove = any(strata3 == "DRIVING")),
+                   by = .(p_id, day_key, day_period_clean)][drove == TRUE]
+setkey(eligible_tlx, p_id, day_key, day_period_clean)
+
+tlx_specs <- data.table(
+  source = c("md", "pd", "td", "p", "e", "f"),
+  variable = c("TLX mental demand", "TLX physical demand",
+               "TLX temporal demand", "TLX performance",
+               "TLX effort", "TLX frustration")
+)
+tlx_rows <- rbindlist(lapply(seq_len(nrow(tlx_specs)), function(i) {
+  v <- tlx_specs$source[i]
+  x <- dt[!is.na(day_period_clean), .(
+    has = any(is.finite(suppressWarnings(as.numeric(get(v)))))
+  ), by = .(p_id, day_key, day_period_clean)]
+  setkey(x, p_id, day_key, day_period_clean)
+  x <- x[eligible_tlx, nomatch = 0]
+  data.table(
+    section = "TLX VARIABLES",
+    variable = tlx_specs$variable[i],
+    context = "DRIVING",
+    unit = "participant-day-period",
+    n = nrow(x),
+    missing_pct = if (nrow(x) > 0) 100 * (1 - mean(x$has)) else NA_real_
+  )
+}))
+
+table2_manuscript <- rbindlist(
+  list(baseline_row, raw_hr_rows, drive_rows, trip_rows, tlx_rows),
+  use.names = TRUE
+)
+
+section_levels <- c(
+  "HEART RATE AND BASELINE VARIABLES",
+  "DRIVING DYNAMICS AND VEHICLE VARIABLES",
+  "TRIP-LEVEL VARIABLES",
+  "TLX VARIABLES"
+)
+variable_levels <- c(
+  "HRbase,id", "HRraw",
+  "ATP", "FF", "FF speed", "Speed", "Distance", "RTP", "Jam factor",
+  "Hand energy (acceleration)", "Hand energy (rotation)",
+  "Trip ID", "Trip distance", "Trip duration",
+  "TLX mental demand", "TLX physical demand", "TLX temporal demand",
+  "TLX performance", "TLX effort", "TLX frustration"
+)
+context_levels <- c("OVERALL", "DRIVING", "NONDRIVING_SEDENTARY", "PHYSICAL_ACTIVITY")
+table2_manuscript[, section := factor(section, levels = section_levels)]
+table2_manuscript[, variable := factor(variable, levels = variable_levels)]
+table2_manuscript[, context := factor(context, levels = context_levels)]
+setorder(table2_manuscript, section, variable, context)
+
+if (RES_SECONDS == 60L) {
+  expected_t2_n <- c(393L, 18487L, 153120L, 5711L,
+                     rep(18487L, 9L), rep(973L, 3L), rep(619L, 6L))
+  expected_t2_missing <- c(7.9, 13.6, 3.5, 2.3,
+                           0.9, 0.0, 0.0, 0.0, 0.0, 0.4, 0.0, 0.2, 0.2,
+                           0.0, 0.0, 0.0,
+                           rep(8.9, 6L))
+  stopifnot(
+    nrow(table2_manuscript) == 22L,
+    identical(table2_manuscript$n, expected_t2_n),
+    isTRUE(all.equal(round(table2_manuscript$missing_pct, 1),
+                     expected_t2_missing, tolerance = 1e-8))
+  )
+  log_msg("Table 2 manuscript checks passed.")
 }
 
-# Trip-level missingness (collapsed unique trips)
-if (!is.null(trip_level_dt) && nrow(trip_level_dt) > 0) {
-  
-  miss_rows[["trip_id"]] <- data.table(
-    variable = "trip_id",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = nrow(trip_level_dt),
-    miss_pct = 0
-  )
-  
-  miss_rows[["trip_distance"]] <- data.table(
-    variable = "trip_distance",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = nrow(trip_level_dt),
-    miss_pct = 100 * mean(!is.finite(trip_level_dt$trip_distance_last))
-  )
-  
-  miss_rows[["trip_duration"]] <- data.table(
-    variable = "trip_duration",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = nrow(trip_level_dt),
-    miss_pct = 100 * mean(!is.finite(trip_level_dt$trip_duration_first))
-  )
-  
-} else {
-  
-  miss_rows[["trip_id"]] <- data.table(
-    variable = "trip_id",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = 0,
-    miss_pct = NA_real_
-  )
-  
-  miss_rows[["trip_distance"]] <- data.table(
-    variable = "trip_distance",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = 0,
-    miss_pct = NA_real_
-  )
-  
-  miss_rows[["trip_duration"]] <- data.table(
-    variable = "trip_duration",
-    strata3 = "DRIVING",
-    unit = "trip",
-    n_units = 0,
-    miss_pct = NA_real_
-  )
-}
+out_miss_csv <- file.path(table_dir, "Table2_MissingnessSummary.csv")
+fwrite(table2_manuscript, out_miss_csv)
 
-miss_tbl <- rbindlist(miss_rows, use.names = TRUE, fill = TRUE)
-miss_tbl[, strata3 := factor(as.character(strata3),
-                             levels = c("OVERALL","DRIVING","NONDRIVING_SEDENTARY","PHYSICAL_ACTIVITY"))]
-miss_tbl[, variable := as.character(variable)]
-setorder(miss_tbl, variable, strata3)
+# Preserve a machine-readable internal diagnostic with source variable names.
+internal_missingness <- data.table(
+  source_variable = c("bl_hr", rep("raw_hr", 3L), drive_specs$source,
+                      c("trip_id", "trip_distance", "trip_duration"), tlx_specs$source),
+  manuscript_variable = as.character(table2_manuscript$variable),
+  context = as.character(table2_manuscript$context),
+  unit = table2_manuscript$unit,
+  n = table2_manuscript$n,
+  missing_pct = table2_manuscript$missing_pct
+)
+fwrite(internal_missingness,
+       file.path(diag_dir, "Diagnostic_Table2_InternalVariableMapping.csv"))
 
-out_miss_csv <- file.path(table_dir, "Table1_Missingness_KeyVars.csv")
-fwrite(miss_tbl, out_miss_csv)
-
-out_miss_tex <- file.path(table_dir, "Table1_Missingness_KeyVars.tex")
-mw <- copy(miss_tbl)
-mw[, miss_pct_fmt := sprintf("%.1f\\%%", miss_pct)]
-mw[is.na(miss_pct), miss_pct_fmt := ""]
-mw[, n_units_fmt := ifelse(is.na(n_units), "", format(as.integer(n_units), big.mark = ","))]
-mw[, strata3_chr := as.character(strata3)]
-mw[is.na(strata3_chr), strata3_chr := ""]
+out_miss_tex <- file.path(table_dir, "Table2_MissingnessSummary.tex")
+mw <- copy(table2_manuscript)
+mw[, `:=`(
+  section = as.character(section),
+  variable = as.character(variable),
+  context = as.character(context),
+  n_fmt = fmt_int(n),
+  missing_fmt = paste0(sprintf("%.1f", missing_pct), "\\%")
+)]
 
 latex_miss <- c(
   "% ============================================================",
-  "% Table 1 (companion) --- Missingness summary (granularity-aware)",
-  "% NOTE: NASA-TLX missingness computed only for DRIVING-present periods.",
+  "% Table 2 --- Missingness summary (manuscript synchronized)",
   "% ============================================================",
   "",
   "\\begin{table}[!htbp]",
   "\\centering",
-  "\\caption{\\textbf{Table 1 (companion) --- Missingness summary.} Missingness is computed at the natural granularity of each variable. Driving-dynamics variables are evaluated on DRIVING rows only, whereas trip-level variables are evaluated on collapsed DRIVING trips. NASA-TLX missingness is computed only for participant-day-period units where DRIVING occurred.}",
-  "\\label{tab:missingness_keyvars}",
-  "\\begin{tabular}{lllr r}",
+  "\\caption{\\textbf{Table 2. Missingness summary.} Missingness is computed at the natural granularity of each variable. Driving-dynamics variables are evaluated on DRIVING rows only, whereas trip-level variables are evaluated on collapsed DRIVING trips. TLX missingness is computed only for participant-day-period units in which DRIVING occurred.}",
+  "\\label{tab:missingness_summary}",
+  "\\begin{tabular}{lllrr}",
   "\\toprule",
   "Variable & Context & Unit & $n$ & Missing (\\%) \\\\",
   "\\midrule"
 )
-for (i in seq_len(nrow(mw))) {
+
+for (sec in section_levels) {
   latex_miss <- c(
     latex_miss,
-    sprintf("%s & %s & %s & %s & %s \\\\",
-            mw$variable[i],
-            mw$strata3_chr[i],
-            mw$unit[i],
-            mw$n_units_fmt[i],
-            mw$miss_pct_fmt[i])
+    sprintf("\\multicolumn{5}{l}{\\textsc{%s}} \\\\", sec),
+    "\\addlinespace[2pt]"
   )
+  rows_sec <- mw[section == sec]
+  for (i in seq_len(nrow(rows_sec))) {
+    latex_var <- switch(
+      rows_sec$variable[i],
+      "HRbase,id" = "$HR_{\\mathrm{base},id}$",
+      "HRraw" = "$HR_{\\mathrm{raw}}$",
+      rows_sec$variable[i]
+    )
+    latex_miss <- c(
+      latex_miss,
+      sprintf("%s & %s & %s & %s & %s \\\\",
+              latex_var, rows_sec$context[i], rows_sec$unit[i],
+              rows_sec$n_fmt[i], rows_sec$missing_fmt[i])
+    )
+  }
+  if (sec != tail(section_levels, 1L)) latex_miss <- c(latex_miss, "\\addlinespace[4pt]")
 }
+
 latex_miss <- c(
   latex_miss,
   "\\bottomrule",
@@ -751,9 +768,8 @@ latex_miss <- c(
   ""
 )
 writeLines(latex_miss, con = out_miss_tex)
-
-log_msg("Wrote missingness CSV: ", out_miss_csv)
-log_msg("Wrote missingness LaTeX: ", out_miss_tex)
+log_msg("Wrote Table 2 CSV: ", out_miss_csv)
+log_msg("Wrote Table 2 LaTeX: ", out_miss_tex)
 
 # ============================================================
 # Figure 1 panels
@@ -1020,11 +1036,13 @@ Figure1 <- (pA | pB) / (pC | pD) / (pE | pF | pG) +
     legend.text  = element_text(size = BASE_FONT - 1)
   )
 
-out_pdf <- file.path(fig_dir, "Figure1-Table1.pdf")
-out_png <- file.path(fig_dir, "Figure1-Table1.png")
+out_pdf <- file.path(fig_dir, "Figure1_ExploratorySampleSummary.pdf")
+out_png <- file.path(fig_dir, "Figure1_ExploratorySampleSummary.png")
 safe_save_pdf(Figure1, out_pdf, w = 16, h = 12)
 safe_save_png(Figure1, out_png, w = 16, h = 12, dpi = 300)
 
 log_msg("Wrote Figure 1 PDF: ", out_pdf)
 log_msg("Wrote Figure 1 PNG: ", out_png)
+log_msg("Session information:")
+capture.output(sessionInfo(), file = log_file, append = TRUE)
 log_msg("DONE.")

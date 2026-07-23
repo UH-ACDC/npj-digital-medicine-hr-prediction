@@ -1,11 +1,12 @@
 # ============================================================
-# 05_figure5_predictability_decomposition.R
+# 05_figure5_table4_predictability_decomposition.R
 #
 # PURPOSE
-#   Generate Figure 5 for the npj Digital Medicine manuscript:
+#   Generate Figure 5 and the supporting Table 4 summary for the
+#   npj Digital Public Health manuscript:
 #
-#     From Instantaneous Heart Rate to Long-Horizon
-#     Cardiovascular Burden in Naturalistic Daily Life
+#     Wearable sensing reveals the structure of cardiac
+#     activation associated with everyday driving
 #
 #   The script summarizes cross-validated prediction performance
 #   for heart-rate prediction models in driving and non-driving
@@ -20,15 +21,15 @@
 #
 #     baseline_offset
 #       Person baseline plus learned context offset
-#       - driving: additional driving tax
-#       - non-driving sedentary: additional daily-living tax
+#       - driving: driving-associated context offset
+#       - non-driving sedentary: non-driving sedentary context offset
 #
 #     enet
 #       Elastic-net model including additional modulators
 #
 # PANEL DEFINITIONS
 #   A. Cross-validated RMSE across folds
-#   B. Cross-validated squared-correlation R^2 across folds
+#   B. Cross-validated squared Pearson correlation r^2 across folds
 #
 # INPUT
 #   The script searches recursively under:
@@ -45,9 +46,10 @@
 #   The script prioritizes files matching the selected resolution.
 #
 # MAJOR OUTPUTS
-#   The script writes Figure 5 and supporting summaries under:
+#   The script writes Figure 5, the Table 4 summary, and supporting
+#   diagnostics under:
 #
-#     Results/paper_figs/<timestamp>_<RES>sec_figure5_predictability_decomposition/
+#     Results/paper_figs/<timestamp>_<RES>sec_figure5_table4_predictability_decomposition/
 #
 #   Main outputs:
 #
@@ -58,6 +60,7 @@
 #     figure5_metrics_by_fold.csv
 #     figure5_summary.csv
 #     figure5_decomposition_rmse.csv
+#     table4_predictive_decomposition.csv
 #     run_log.txt
 #
 # REPOSITORY SCOPE
@@ -97,10 +100,10 @@ MODEL_ORDER <- c("baseline0", "baseline_offset", "enet")
 #   NONDRIVING_SEDENTARY = grays
 FACET_MODEL_PAL <- c(
   "DRIVING__Baseline only"                             = "#FDD9B5",
-  "DRIVING__Baseline + driving tax"                   = "#F4A261",
+  "DRIVING__Baseline + context offset"                = "#F4A261",
   "DRIVING__ENet"                                     = "#D97706",
   "NONDRIVING_SEDENTARY__Baseline only"               = "white",
-  "NONDRIVING_SEDENTARY__Baseline + daily-living tax" = "grey80",
+  "NONDRIVING_SEDENTARY__Baseline + context offset"   = "grey80",
   "NONDRIVING_SEDENTARY__ENet"                        = "grey55"
 )
 
@@ -138,35 +141,12 @@ message("Results root: ", results_root)
 message("paper_figs root: ", paper_figs_root)
 
 # ----------------------------
-# Resolution picker
+# Analysis resolution
 # ----------------------------
-# The public repository currently includes curated prediction
-# outputs for the resolution(s) used in the manuscript. The picker
-# is retained so the same script can be reused if additional
-# 10-sec or 30-sec prediction outputs are added later.
-
-pick_resolution <- function(default = 60L) {
-  cat(
-    "\nChoose prediction-output resolution:\n",
-    "  1) 10 sec  [requires matching prediction CSV under Results/]\n",
-    "  2) 30 sec  [requires matching prediction CSV under Results/]\n",
-    "  3) 60 sec  [manuscript/public-repository default]\n",
-    sep = ""
-  )
-  
-  ans <- trimws(readline(
-    sprintf("Enter 10 / 30 / 60 (or 1/2/3). Press Enter for %d sec: ", default)
-  ))
-  
-  if (ans == "") return(as.integer(default))
-  if (ans %in% c("1", "10")) return(10L)
-  if (ans %in% c("2", "30")) return(30L)
-  if (ans %in% c("3", "60")) return(60L)
-  
-  stop("Invalid entry: ", ans, " (expected 10/30/60 or 1/2/3)")
-}
-
-RES_SECONDS <- pick_resolution(default = 60L)
+# The manuscript and public-repository outputs use 60-s data.
+# Change this value manually only if matching 10-s or 30-s
+# prediction files are added under Results/ in the future.
+RES_SECONDS <- 60L
 
 # ----------------------------
 # Helpers
@@ -207,7 +187,10 @@ normalize_model <- function(x) {
   x0 <- str_replace_all(x0, "[[:space:]-]+", "_")
   
   dplyr::case_when(
-    x0 %in% c("baseline0", "baseline_0", "baseline") ~ "baseline0",
+    x0 %in% c(
+      "baseline0", "baseline_0", "baseline", "baseline_only",
+      "baselineonly", "person_baseline", "participant_baseline"
+    ) ~ "baseline0",
     x0 %in% c("baseline_offset", "baseline_plus_offset", "offset", "baselineoffset") ~ "baseline_offset",
     x0 %in% c("enet", "elastic_net", "elasticnet", "glmnet") ~ "enet",
     TRUE ~ x0
@@ -236,6 +219,16 @@ rsq_vec <- function(y, p) {
   if (length(y) < 2L) return(NA_real_)
   if (sd(y) == 0 || sd(p) == 0) return(NA_real_)
   cor(y, p)^2
+}
+
+r2_oos_vec <- function(y, p) {
+  ok <- is.finite(y) & is.finite(p)
+  y <- y[ok]
+  p <- p[ok]
+  if (length(y) < 2L) return(NA_real_)
+  sst <- sum((y - mean(y))^2)
+  if (!is.finite(sst) || sst <= 0) return(NA_real_)
+  1 - sum((y - p)^2) / sst
 }
 
 safe_se <- function(x) {
@@ -275,12 +268,9 @@ safe_save_png <- function(plot_obj, path, w = 7, h = 5, dpi = 300) {
 # Stratum-specific display labels
 model_label_by_stratum <- function(stratum, model) {
   dplyr::case_when(
-    stratum == "DRIVING" & model == "baseline0" ~ "Baseline only",
-    stratum == "DRIVING" & model == "baseline_offset" ~ "Baseline + driving tax",
-    stratum == "DRIVING" & model == "enet" ~ "ENet",
-    stratum == "NONDRIVING_SEDENTARY" & model == "baseline0" ~ "Baseline only",
-    stratum == "NONDRIVING_SEDENTARY" & model == "baseline_offset" ~ "Baseline + daily-living tax",
-    stratum == "NONDRIVING_SEDENTARY" & model == "enet" ~ "ENet",
+    model == "baseline0" ~ "Baseline only",
+    model == "baseline_offset" ~ "Baseline + context offset",
+    model == "enet" ~ "ENet",
     TRUE ~ NA_character_
   )
 }
@@ -341,7 +331,7 @@ stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
 out_dir <- file.path(
   paper_figs_root,
-  paste0(stamp, "_", RES_SECONDS, "sec_figure5_predictability_decomposition")
+  paste0(stamp, "_", RES_SECONDS, "sec_figure5_table4_predictability_decomposition")
 )
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -355,8 +345,8 @@ log_msg <- function(...) {
   cat(msg, "\n", file = log_file, append = TRUE)
 }
 
-log_msg("Script: 05_figure5_predictability_decomposition.R")
-log_msg("Figure 5 predictability decomposition analysis start")
+log_msg("Script: 05_figure5_table4_predictability_decomposition.R")
+log_msg("Figure 5 / Table 4 predictive decomposition analysis start")
 log_msg("Project root: ", project_root)
 log_msg("Results root: ", results_root)
 log_msg("Resolution: ", RES_SECONDS, " sec")
@@ -377,6 +367,8 @@ col_stratum <- first_existing_col(preds_raw, c("stratum", "context", "subset", "
 col_fold    <- first_existing_col(preds_raw, c("fold", "id", "resample", "cv_fold", "fold_id"), TRUE, "fold column")
 col_obs     <- first_existing_col(preds_raw, c("raw_hr_obs", "obs", "truth", "y", ".outcome"), TRUE, "observed outcome column")
 col_hat     <- first_existing_col(preds_raw, c("raw_hr_hat", "pred", ".pred", "estimate", "prediction", "yhat"), TRUE, "prediction column")
+
+log_msg("Raw model labels: ", paste(sort(unique(as.character(preds_raw[[col_model]]))), collapse = ", "))
 
 log_msg("Detected model col: ", col_model)
 log_msg("Detected stratum col: ", col_stratum)
@@ -403,6 +395,16 @@ log_msg("Rows after filtering to paper models/strata: ", nrow(preds))
 log_msg("Models present: ", paste(sort(unique(preds$model)), collapse = ", "))
 log_msg("Strata present: ", paste(sort(unique(preds$stratum)), collapse = ", "))
 
+missing_models <- setdiff(MODEL_ORDER, unique(preds$model))
+if (length(missing_models) > 0L) {
+  stop(
+    "Required model stage(s) missing after label harmonization: ",
+    paste(missing_models, collapse = ", "), "\n",
+    "Raw model labels in the selected prediction file: ",
+    paste(sort(unique(as.character(preds_raw[[col_model]]))), collapse = ", ")
+  )
+}
+
 # ============================================================
 # Fold-level metrics
 # ============================================================
@@ -410,8 +412,9 @@ by_fold <- preds %>%
   group_by(stratum, model, fold) %>%
   summarise(
     n    = sum(is.finite(raw_hr_obs) & is.finite(raw_hr_hat)),
-    rmse = rmse_vec(raw_hr_obs, raw_hr_hat),
-    rsq  = rsq_vec(raw_hr_obs, raw_hr_hat),
+    rmse   = rmse_vec(raw_hr_obs, raw_hr_hat),
+    rsq    = rsq_vec(raw_hr_obs, raw_hr_hat),
+    r2_oos = r2_oos_vec(raw_hr_obs, raw_hr_hat),
     .groups = "drop"
   ) %>%
   arrange(stratum, match(model, MODEL_ORDER), fold)
@@ -428,8 +431,9 @@ sum_fold <- by_fold %>%
     k_folds   = sum(is.finite(rmse)),
     rmse_mean = mean(rmse, na.rm = TRUE),
     rmse_se   = safe_se(rmse),
-    rsq_mean  = mean(rsq, na.rm = TRUE),
-    rsq_se    = safe_se(rsq),
+    rsq_mean    = mean(rsq, na.rm = TRUE),
+    rsq_se      = safe_se(rsq),
+    r2_oos_mean = mean(r2_oos, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(
@@ -471,6 +475,66 @@ write_csv(decomp_rmse, file.path(out_dir, "figure5_decomposition_rmse.csv"))
 log_msg("Wrote figure5_decomposition_rmse.csv")
 
 # ============================================================
+# Table 4 summary
+# ============================================================
+# Delta metrics are computed relative to the baseline-only model.
+# "ENet wins" is the percentage of outer folds in which ENet has
+# lower RMSE than the baseline-plus-offset model.
+
+table4 <- sum_fold %>%
+  mutate(
+    stratum = as.character(stratum),
+    model = as.character(model)
+  ) %>%
+  group_by(stratum) %>%
+  mutate(
+    delta_rmse = rmse_mean - rmse_mean[model == "baseline0"],
+    delta_rsq  = rsq_mean - rsq_mean[model == "baseline0"]
+  ) %>%
+  ungroup()
+
+enet_wins <- by_fold %>%
+  select(stratum, model, fold, rmse) %>%
+  filter(model %in% c("baseline_offset", "enet")) %>%
+  pivot_wider(names_from = model, values_from = rmse) %>%
+  group_by(stratum) %>%
+  summarise(
+    enet_wins_pct = 100 * mean(enet < baseline_offset, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+table4 <- table4 %>%
+  left_join(enet_wins, by = "stratum") %>%
+  mutate(
+    model_label = case_when(
+      model == "baseline0" ~ "Baseline only",
+      model == "baseline_offset" ~ "Baseline + context offset",
+      model == "enet" ~ "ENet",
+      TRUE ~ model
+    ),
+    r2_oos_report = ifelse(model == "enet", r2_oos_mean, NA_real_),
+    enet_wins_report = ifelse(model == "enet", enet_wins_pct, NA_real_)
+  ) %>%
+  select(
+    stratum,
+    model,
+    model_label,
+    k_folds,
+    rmse_mean,
+    rmse_se,
+    delta_rmse,
+    rsq_mean,
+    rsq_se,
+    delta_rsq,
+    r2_oos_report,
+    enet_wins_report
+  ) %>%
+  arrange(match(stratum, c("DRIVING", "NONDRIVING_SEDENTARY")), match(model, MODEL_ORDER))
+
+write_csv(table4, file.path(out_dir, "table4_predictive_decomposition.csv"))
+log_msg("Wrote table4_predictive_decomposition.csv")
+
+# ============================================================
 # Plot prep
 # ============================================================
 plot_df <- sum_fold %>%
@@ -488,8 +552,7 @@ plot_df <- sum_fold %>%
       model_lab,
       levels = c(
         "Baseline only",
-        "Baseline + driving tax",
-        "Baseline + daily-living tax",
+        "Baseline + context offset",
         "ENet"
       )
     ),
@@ -550,7 +613,7 @@ p_rmse <- ggplot(plot_df, aes(x = model_lab, y = rmse_mean)) +
   facet_wrap(~ stratum, nrow = 1, scales = "free_x") +
   labs(
     title = "Predictability decomposition (HR)",
-    subtitle = "Cross-validated RMSE across folds",
+    subtitle = "Cross-validated RMSE across outer folds",
     x = NULL,
     y = "RMSE [bpm]"
   ) +
@@ -591,9 +654,9 @@ p_rsq <- ggplot(plot_df, aes(x = model_lab, y = rsq_mean)) +
   facet_wrap(~ stratum, nrow = 1, scales = "free_x") +
   labs(
     title = "Predictability decomposition (HR)",
-    subtitle = "Cross-validated explained variance across folds",
+    subtitle = "Cross-validated variance explained across outer folds",
     x = NULL,
-    y = expression(R^2)
+    y = expression(r^2)
   ) +
   theme_fig5
 
@@ -643,4 +706,4 @@ log_msg("Saved figures to: ", fig_dir)
 log_msg("Decomposition (RMSE drops):")
 capture.output(print(decomp_rmse), file = log_file, append = TRUE)
 
-log_msg("DONE. Outputs in: ", out_dir)
+log_msg("DONE. Figure 5 and Table 4 outputs in: ", out_dir)

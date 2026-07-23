@@ -1,32 +1,40 @@
-# Wearable Driving Cardiovascular Load
+# Wearable Sensing Reveals the Structure of Cardiac Activation Associated with Everyday Driving
 
-This repository contains the analysis code and curated data products for the manuscript:
+This repository contains the analysis code used to reproduce the results presented in the manuscript:
 
-**Wearable sensing reveals cumulative cardiovascular load from everyday driving**
+> **Wearable sensing reveals the structure of cardiac activation associated with everyday driving**  
+> Yasmine Bouzid, MD Tanim Hasan, Michael Manser, and Ioannis Pavlidis
 
-The project analyzes heart-rate dynamics in naturalistic daily life, with emphasis on driving and non-driving sedentary contexts. It uses curated participant-level wearable and contextual features to evaluate baseline-referenced cardiovascular load, machine-learning prediction of raw heart rate, context-level cardiovascular tax, and long-horizon cumulative exposure.
-
-The repository supports reproducibility of the manuscript submitted to **npj Digital Public Health**.
-
----
-
-## Repository scope
-
-This public repository starts from:
-
-1. A final clean MASTER dataset.
-2. Analysis scripts for generating curated machine-learning outputs used by the manuscript figures.
-3. Figure-generation scripts for the manuscript and supplement.
-
-It does **not** rebuild the full upstream processing pipeline from raw wearable, smartphone, vehicle, GPS, weather, or ground-truth streams.
-
-It does **not** include generated results. The `Results/` directory is intentionally excluded from the repository. Users should run the scripts locally to regenerate model outputs, figures, diagnostics, and manuscript-ready plots.
-
-The repository is intended for manuscript reproducibility from the curated final dataset, not for raw-data reconstruction.
+The repository accompanies the NUBI II naturalistic driving study and implements a baseline-referenced decomposition framework for understanding cardiac activation during everyday driving using continuous multimodal wearable sensing.
 
 ---
 
-## Repository structure
+# Overview
+
+Many physiologically meaningful behaviors are not characterized by rare extreme events but by modest physiological responses that occur repeatedly throughout daily life. Quantifying these repeated physiological exposures requires continuous measurements of physiology together with synchronized behavioral and environmental context.
+
+Using one week of naturalistic monitoring from wearable devices, smartphones, and vehicles, this work characterizes the cardiac operating regime associated with everyday driving relative to non-driving sedentary behavior.
+
+The proposed framework decomposes instantaneous heart rate into four interpretable components:
+
+1. participant-specific physiological baseline,
+2. context-specific cardiac offset,
+3. additional modulation by behavioral, environmental, and individual characteristics,
+4. residual variation.
+
+The repository reproduces every analysis reported in the manuscript, including:
+
+- exploratory data characterization,
+- baseline-referenced operating-regime analysis,
+- predictive decomposition using nested grouped cross-validation,
+- elastic-net modulator analysis,
+- long-horizon scenario projections,
+- supplementary heart-rate missingness analyses,
+- supplementary participant-level physiological traces.
+
+---
+
+# Repository structure
 
 ```text
 .
@@ -34,477 +42,218 @@ The repository is intended for manuscript reproducibility from the curated final
 │   └── NUBI_Data_60sec_Level_MASTER_CLEAN.csv
 │
 ├── Scripts/
-│   ├── 00_run_predictive_decomposition.R
-│   ├── 01_figure1_participant_level_timeseries.R
-│   ├── 02_figure2_representative_trace.R
-│   ├── 03_figure3_model_performance.R
-│   ├── 04_figure4_context_tax.R
-│   ├── 05_figure5_prediction_decomposition.R
-│   ├── 06_figure6_enet_modulators.R
-│   ├── 07_figure7_long_horizon_simulation.R
-│   ├── 08_figure8_horizon_scaling_raw_hr.R
-│   └── s01_supplement_activity3_participant_traces.R
+│   ├── 00_predictive_decomposition_nested_cv.R
+│   ├── ...
+│   ├── 07_figure7_table5_long_horizon_scenarios.R
+│   ├── 08_supplementary_tableS1_hr_missingness_analysis.R
+│   └── 09_supplementary_figureS1_participant_traces.R
 │
-├── DATA_USE.md
-├── LICENSE
+├── Results/
+│
 ├── README.md
-├── .gitignore
-└── .gitattributes
-```
-
-Generated outputs are written locally under:
-
-```text
-Results/
-```
-
-The `Results/` folder is not included in the repository.
-
-The scripts listed above reflect the manuscript-ready public-release naming.
-
----
-
-## Data
-
-The primary public-repository dataset is:
-
-```text
-Data/NUBI_Data_60sec_Level_MASTER_CLEAN.csv
-```
-
-Some scripts can also support 10-sec or 30-sec versions if matching files are available locally:
-
-```text
-Data/NUBI_Data_10sec_Level_MASTER_CLEAN.csv
-Data/NUBI_Data_30sec_Level_MASTER_CLEAN.csv
-Data/NUBI_Data_60sec_Level_MASTER_CLEAN.csv
-```
-
-The 60-sec dataset is the manuscript/public-repository default.
-
-The dataset contains curated participant-level time-series features, including heart rate, baseline heart rate, activity labels, weather/context variables, and psychometric/workload variables.
-
-Expected core columns include:
-
-```text
-p_id
-time
-day_num
-activity
-activity3
-bl_hr
-raw_hr
-weather_info
-trait_anxiety
-age
-gender
-md
-pd
-td
-p
-e
-f
-```
-
-Column names are canonicalized inside the scripts where needed, so minor naming variants are handled defensively.
-
-Use of the curated dataset is governed by [`DATA_USE.md`](DATA_USE.md).
-
----
-
-## Generated results
-
-The repository intentionally does **not** include:
-
-```text
-Results/
-```
-
-All model outputs, figure outputs, diagnostics, and manuscript-ready plots are regenerated locally. The scripts create the required `Results/` subdirectories as needed.
-
-The main generated locations are:
-
-```text
-Results/nubi_ml/
-Results/paper_figs/
-```
-
-Machine-learning outputs required by later figure scripts are generated under:
-
-```text
-Results/nubi_ml/<ML_RUN_FOLDER>/
-```
-
-Figure outputs and diagnostics are generated under:
-
-```text
-Results/paper_figs/
+├── LICENSE
+└── DATA_USE.md
 ```
 
 ---
 
-## Reproducing the analysis
+# Dataset
 
-From the repository root, first run the predictive-decomposition script. This step is required before running Figures 6–8, because those scripts read the generated ML outputs:
+The repository includes the curated **60-second resolution** dataset used throughout the manuscript.
 
-```r
-source("Scripts/00_run_predictive_decomposition.R", echo = TRUE)
-```
+The dataset contains synchronized information from:
 
-This creates the curated machine-learning outputs under:
+- Apple Watch heart rate
+- Apple HealthKit physiological baseline
+- smartphone sensing
+- vehicle telemetry
+- weather
+- traffic
+- psychometric instruments
+- NASA-TLX workload measures
 
-```text
-Results/nubi_ml/<timestamp>_<RES>sec_.../
-```
-
-Then run the manuscript figure scripts:
-
-```r
-source("Scripts/01_figure1_participant_level_timeseries.R", echo = TRUE)
-source("Scripts/02_figure2_representative_trace.R", echo = TRUE)
-source("Scripts/03_figure3_model_performance.R", echo = TRUE)
-source("Scripts/04_figure4_context_tax.R", echo = TRUE)
-source("Scripts/05_figure5_prediction_decomposition.R", echo = TRUE)
-source("Scripts/06_figure6_enet_modulators.R", echo = TRUE)
-source("Scripts/07_figure7_long_horizon_simulation.R", echo = TRUE)
-source("Scripts/08_figure8_horizon_scaling_raw_hr.R", echo = TRUE)
-source("Scripts/s01_supplement_activity3_participant_traces.R", echo = TRUE)
-```
-
-Several scripts ask interactively which dataset resolution to use:
-
-```text
-10 sec
-30 sec
-60 sec
-```
-
-Pressing Enter uses the 60-sec manuscript/public-repository default where supported.
+All analyses reported in the manuscript are reproduced from this dataset.
 
 ---
 
-## Required generated ML outputs
+# Scientific workflow
 
-Figures 6–8 require compatible generated files under:
+The repository follows the analytical workflow of the manuscript.
 
-```text
-Results/nubi_ml/<ML_RUN_FOLDER>/
 ```
-
-The scripts auto-detect the newest compatible run folder for the selected resolution by checking for required files, rather than relying on a fixed timestamped folder name. This allows users to run the scripts locally and use ML output folders with locally generated names.
-
-### Figure 6 requires
-
-```text
-feature_importance_grouped_DRIVING.csv
-feature_importance_grouped_NONDRIVING_SEDENTARY.csv
-feature_importance_terms_DRIVING.csv
-feature_importance_terms_NONDRIVING_SEDENTARY.csv
-compare_metrics_rawhr_overall_by_stratum.csv
-```
-
-### Figure 7 requires
-
-```text
-predictor_list_DRIVING.csv
-best_params_DRIVING.csv
-```
-
-### Figure 8 requires
-
-```text
-predictions_all_models_both_strata.csv
-```
-
-These files are generated locally by running the predictive-decomposition workflow before running Figures 6–8.
-
----
-
-## R environment
-
-The scripts were written for R and use common CRAN packages.
-
-Install required packages with:
-
-```r
-install.packages(c(
-  "data.table",
-  "lubridate",
-  "ggplot2",
-  "readr",
-  "dplyr",
-  "tidyr",
-  "stringr",
-  "patchwork",
-  "scales",
-  "tidymodels",
-  "glmnet"
-))
-```
-
-Some systems may also require additional tidymodels dependencies, which R will usually install automatically.
-
----
-
-## Figure 6: ENet modulators
-
-Script:
-
-```text
-Scripts/06_figure6_enet_modulators.R
-```
-
-Purpose:
-
-Figure 6 visualizes non-physiological ENet modulators of heart rate beyond participant baseline and context-level cardiovascular tax.
-
-Panels:
-
-```text
-A. Grouped ENet feature importance beyond baseline+tax
-B. Signed standardized coefficients for interpretable predictors
-C. Top continuous modulators shown as coefficient-implied effects
-D. Incremental ENet gain beyond baseline+tax
-```
-
-Main outputs:
-
-```text
-Results/paper_figs/<timestamp>_<RES>sec_figure6_enet_modulators/
-├── Figure6_ENet_Modulators.pdf
-├── Figure6_ENet_Modulators.png
-├── diagnostics_summary.txt
-├── diag_counts_by_stratum.csv
-├── diag_panelA_grouped_features.csv
-├── diag_panelB_terms.csv
-├── diag_panelC_selected_modulators.csv
-├── diag_panelC_effect_curves.csv
-└── diag_panelD_incremental_gain.csv
+Curated naturalistic dataset
+            │
+            ▼
+Exploratory characterization
+            │
+            ▼
+Baseline-referenced heart-rate transformation
+            │
+            ▼
+Operating-regime analysis
+            │
+            ▼
+Predictive decomposition
+            │
+            ▼
+Elastic-net modulation analysis
+            │
+            ▼
+Long-horizon scenario projections
+            │
+            ▼
+Supplementary analyses
 ```
 
 ---
 
-## Figure 7: ENet horizon simulation
+# Analysis pipeline
 
-Script:
+The principal scripts should be executed sequentially.
 
-```text
-Scripts/07_figure7_long_horizon_simulation.R
-```
+| Script | Primary output |
+|---------|----------------|
+| 00 | Nested grouped cross-validation and predictive decomposition |
+| 01–06 | Figures 1–6 and associated manuscript tables |
+| 07 | Figure 7 and long-horizon scenario analyses |
+| 08 | Supplementary Table S1 (heart-rate missingness analyses) |
+| 09 | Supplementary Figure S1 (participant-level HR traces) |
 
-Purpose:
-
-Figure 7 translates short-timescale ENet-predicted heart-rate burden into annual cumulative NHR-hours under repeated driving schedules.
-
-The ENet model is refit on the full DRIVING stratum using saved predictors and selected hyperparameters. Predicted raw HR is converted to baseline-referenced load:
-
-```text
-NHR_hat = RAW_HR_hat - bl_hr_person
-```
-
-Panels:
-
-```text
-A. Driving weather contrast using observed DRIVING rows:
-   Clouds versus Adverse weather
-
-B. Trait-anxiety contrast using a matched typical driving profile:
-   Lowest versus highest trait anxiety
-```
-
-Main outputs:
-
-```text
-Results/paper_figs/<timestamp>_<RES>sec_figure7_enet_horizon_weather_trait/
-├── Figures/
-│   ├── Figure7_ENetHorizon_Weather_and_TraitTypical.pdf
-│   └── Figure7_ENetHorizon_Weather_and_TraitTypical.png
-├── Figure7_enet_params_used.csv
-├── figure7_weather_split_audit.csv
-├── figure7_weather_labels_used.csv
-├── figure7_panelA_weather_boot_mu_draws.csv
-├── figure7_panelA_weather_sim_summary.csv
-├── figure7_typical_profile_used.csv
-├── figure7_panelB_trait_params.csv
-├── figure7_panelB_trait_sim_summary.csv
-└── run_log.txt
-```
+Each script creates its own output directory and reproduces the corresponding manuscript figures and tables.
 
 ---
 
-## Figure 8: Horizon scaling of RAW_HR prediction error
+# Methodological summary
 
-Script:
+The analysis uses participant-specific physiological baseline heart rate obtained from the Apple HealthKit `restingHeartRate` metric.
 
-```text
-Scripts/08_figure8_horizon_scaling_raw_hr.R
-```
+Baseline-referenced heart rate is defined as
 
-Purpose:
+\[
+NHR = HR_{raw} - HR_{base}
+\]
 
-Figure 8 evaluates how ENet RAW_HR prediction error changes when residuals are averaged over progressively longer temporal horizons.
+The predictive framework represents instantaneous heart rate as
 
-Residual definition:
+\[
+HR_{raw}
+=
+HR_{base}
++
+\tau_c
++
+\phi(X)
++
+\epsilon
+\]
 
-```text
-residual = RAW_HR_observed - RAW_HR_predicted
-```
+where
 
-Residuals are grouped into contiguous within-subject temporal blocks at multiple averaging horizons. The main figure shows normalized RMSE of block-mean residuals versus averaging horizon for DRIVING and NONDRIVING_SEDENTARY strata.
+- \(HR_{base}\) is participant-specific baseline,
+- \(\tau_c\) is the context-specific offset,
+- \(\phi(X)\) represents modulation by observed covariates,
+- \(\epsilon\) is residual variation.
 
-Main outputs:
-
-```text
-Results/paper_figs/<timestamp>_<RES>sec_figure8_horizon_scaling_rawhr/
-├── Figure8_HorizonScaling_RAWHR.pdf
-├── Figure8_HorizonScaling_RAWHR.png
-├── Figure8_HorizonScaling_LogLogDiagnostic.pdf
-├── Figure8_HorizonScaling_LogLogDiagnostic.png
-├── Figure8_block_means_long.csv
-├── Figure8_block_counts_by_horizon.csv
-├── Figure8_horizon_metrics_long.csv
-├── Figure8_loglog_slopes.csv
-├── Figure8_reduction_summary.csv
-├── Figure8_caption_numbers.csv
-├── diagnostics_rowmap_DRIVING.csv
-├── diagnostics_rowmap_NONDRIVING_SEDENTARY.csv
-├── diagnostics_joined_prediction_sample.csv
-├── diagnostics_segments.csv
-├── diagnostics_segment_summary.csv
-└── run_log.txt
-```
+Prediction performance is evaluated using nested grouped cross-validation to ensure complete separation of participants between training and testing folds.
 
 ---
 
-## Supplementary activity3 figure
+# Reproduced manuscript outputs
 
-Script:
+The repository reproduces all principal manuscript results, including
 
-```text
-Scripts/s01_supplement_activity3_participant_traces.R
-```
+- Figure 1 – Exploratory sample characterization
+- Figure 2 – Representative participant trace
+- Figure 3 – Baseline-referenced operating regimes
+- Figure 4 – Predictive decomposition framework
+- Figure 5 – Predictive decomposition performance
+- Figure 6 – Elastic-net modulators
+- Figure 7 – Long-horizon scenario analyses
 
-Purpose:
+and
 
-Generates a multipage supplementary figure showing participant-level heart-rate time series across the seven study-day slots.
+- Table 1 – Dataset inventory
+- Table 2 – Missingness summary
+- Table 3 – Operating-regime statistics
+- Table 4 – Predictive decomposition performance
+- Table 5 – Long-horizon scenario projections
 
-Raw HR is colored by `activity3`:
+The repository also reproduces
 
-```text
-driving                         -> orange
-non_driving_sedentary           -> black
-non_driving_physical_activity   -> green
-```
-
-Baseline HR is shown in red.
-
-The x-axis uses study-day placement over a fixed seven-slot layout:
-
-```text
-day1 = slot 1, 0-24 h
-day2 = slot 2, 24-48 h
-...
-day7 = slot 7, 144-168 h
-```
-
-`day_num` is treated as the primary study-day key. Day1–Day7 are weekday-coded study-day labels and are not assumed to be consecutive calendar dates.
-
-Main outputs:
-
-```text
-Results/paper_figs/<timestamp>_<RES>sec_supplementary_figure_activity3/
-├── Figures/
-│   └── Supplementary_Figure.pdf
-├── Diagnostics/
-│   ├── activity3_counts.csv
-│   ├── subject_summary_before_fill.csv
-│   ├── duplicate_pid_time_rows.csv
-│   ├── subject_summary_study_day_slots.csv
-│   ├── baseline_subject_study_day_level.csv
-│   ├── baseline_subject_study_day_summary.csv
-│   ├── baseline_study_day_overall_summary.csv
-│   ├── baseline_subject_calendar_day_level.csv
-│   ├── baseline_subject_calendar_day_summary.csv
-│   ├── baseline_calendar_day_overall_summary.csv
-│   └── missingness_after_fill.csv
-└── run_log.txt
-```
+- Supplementary Table S1
+- Supplementary Figure S1
 
 ---
 
-## Output policy
+# Software requirements
 
-Generated figures, ML outputs, and diagnostics are written under:
+The analyses were developed and tested using
 
-```text
-Results/
-```
+- R (version 4.6 or later)
 
-The `Results/` directory is intentionally ignored by Git and is not part of the public repository. This keeps the repository lightweight and ensures users regenerate outputs locally.
+Required packages include
 
-Recommended `.gitignore` entry:
+- tidyverse
+- glmnet
+- lme4
+- lmerTest
+- ggplot2
+- patchwork
+- broom
+- broom.mixed
+- pROC
+- cowplot
+- scales
 
-```text
-Results/
-```
-
----
-
-## Reproducibility notes
-
-The scripts are designed to be robust to timestamped or renamed ML output folders. After running:
-
-```r
-source("Scripts/00_run_predictive_decomposition.R", echo = TRUE)
-```
-
-Figures 6–8 search under:
-
-```text
-Results/nubi_ml/
-```
-
-and select the newest folder for the chosen resolution that contains the required files.
-
-If multiple compatible ML folders exist, the newest compatible folder is selected. To force a specific folder, edit the relevant script setting:
-
-```r
-RUN_DIR_NAME <- "your_exact_folder_name"
-```
-
-For public release, the recommended default is:
-
-```r
-RUN_DIR_NAME <- NULL
-RUN_DIR_SUFFIX_REGEX <- ""
-```
+Individual scripts automatically check for required packages where appropriate.
 
 ---
 
-## Privacy and data-use constraints
+# Reproducibility
 
-This repository uses curated model inputs, locally generated model outputs, and timestamped features. It does not require direct GPS coordinates or raw location traces.
+All scripts
 
-The curated dataset may still contain sensitive participant-level time-series information. Use of the dataset is governed by [`DATA_USE.md`](DATA_USE.md).
+- use deterministic random seeds where applicable,
+- create output directories automatically,
+- avoid manual intervention during execution,
+- generate publication-ready figures directly from the released dataset.
 
----
-
-## License
-
-The repository code is released under the MIT License. See [`LICENSE`](LICENSE).
-
-Use of the curated dataset is governed separately by [`DATA_USE.md`](DATA_USE.md).
+Running the scripts sequentially reproduces the analyses reported in the accompanying manuscript.
 
 ---
 
-## Citation
+# Data use
 
-Please cite the associated manuscript when using this repository:
+Please refer to **DATA_USE.md** for licensing terms, attribution requirements, and conditions governing reuse of the dataset.
 
-```text
-Bouzid Y, Hasan MT, Manser M, Pavlidis I.
-Wearable sensing reveals cumulative cardiovascular load from everyday driving.
-Submitted to npj Digital Public Health.
-```
+---
 
-Full citation details should be updated after publication.
+# Citation
+
+If you use this repository, please cite
+
+Bouzid Y, Hasan MDT, Manser M, Pavlidis I.
+
+*Wearable sensing reveals the structure of cardiac activation associated with everyday driving.*
+
+---
+
+# Acknowledgments
+
+The NUBI II dataset was collected, curated, and prepared for public release by **MD Tanim Hasan** and **Ioannis Pavlidis**.
+
+Repository organization, analysis scripts, and reproducible computational workflow were prepared by **Ioannis Pavlidis**.
+
+---
+
+# Contact
+
+Ioannis Pavlidis
+
+Affective and Data Computing Laboratory (ACDC)
+
+University of Houston
+
+Houston, Texas, USA
+
+Email: ipavlidis@uh.edu

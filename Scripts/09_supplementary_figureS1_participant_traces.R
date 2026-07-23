@@ -1,26 +1,27 @@
 # ============================================================
-# s01_supplement_activity3_participant_traces.R
+# 09_supplementary_figureS1_participant_traces_v1.0.R
 #
 # PURPOSE
-#   Generate a multipage supplementary figure for the npj Digital
-#   Medicine manuscript:
+#   Reproduce Supplementary Figure S1 for the npj Digital Public Health
+#   manuscript:
 #
-#     Wearable sensing reveals cumulative cardiovascular load
-#     from everyday driving
+#     Wearable sensing reveals the structure of cardiac activation
+#     associated with everyday driving
 #
 #   The figure visualizes participant-level heart-rate time series
 #   across the 7 study-day slots, with raw HR colored by behavioral
 #   context and baseline HR overlaid.
 #
 # DATA SOURCE
-#   One final clean MASTER dataset selected interactively:
+#   Final clean MASTER dataset selected by RES_SECONDS:
 #
 #     Data/NUBI_Data_10sec_Level_MASTER_CLEAN.csv
 #     Data/NUBI_Data_30sec_Level_MASTER_CLEAN.csv
 #     Data/NUBI_Data_60sec_Level_MASTER_CLEAN.csv
 #
-#   Pressing Enter at the resolution prompt uses the 60-sec
-#   manuscript/public-repository default.
+#   RES_SECONDS defaults to 60, which reproduces the manuscript figure.
+#   Advanced users may override it with the NUBI_RES_SECONDS environment
+#   variable (10, 30, or 60), provided the matching MASTER file is present.
 #
 # IMPORTANT COLUMN NOTE
 #   The MASTER dataset contains both:
@@ -77,11 +78,11 @@
 # MAJOR OUTPUTS
 #   The script writes the supplementary figure and diagnostics under:
 #
-#     Results/paper_figs/<timestamp>_<RES>sec_supplementary_figure_activity3/
+#     Results/paper_figs/<timestamp>_<RES>sec_supplementary_figureS1_participant_traces/
 #
 #   Main figure:
 #
-#     Figures/Supplementary_Figure.pdf
+#     Figures/Supplementary_Figure_S1.pdf
 #
 #   Diagnostics:
 #
@@ -99,6 +100,7 @@
 #     Diagnostics/baseline_calendar_day_overall_summary.csv
 #     Diagnostics/missingness_after_fill.csv
 #     run_log.txt
+#     session_info.txt
 #
 # REPOSITORY SCOPE
 #   This public repository starts from the final clean MASTER
@@ -110,6 +112,17 @@
 #   labels. It does not require direct GPS coordinates or raw
 #   location traces.
 # ============================================================
+
+required_packages <- c("data.table", "lubridate", "stringr", "ggplot2", "patchwork")
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing required packages: ", paste(missing_packages, collapse = ", "),
+    "\nInstall them before running this script."
+  )
+}
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -124,6 +137,7 @@ options(warn = 1)
 # ----------------------------
 # USER SETTINGS
 # ----------------------------
+SCRIPT_VERSION <- "1.0"
 LOCAL_TZ <- "America/Chicago"
 
 subjects_per_page <- 3
@@ -152,48 +166,19 @@ PAL_STATE <- c(
 )
 
 # ----------------------------
-# Robust wd = Scripts/
+# Resolution and project root
 # ----------------------------
-this_script <- tryCatch(normalizePath(sys.frame(1)$ofile), error = function(e) NA_character_)
-if (!is.na(this_script) && file.exists(this_script)) {
-  setwd(dirname(this_script))
-}
-message("Working directory (Scripts): ", getwd())
-
-project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-
-# ----------------------------
-# Interactive resolution choice
-# ----------------------------
-choose_resolution <- function(default = 60L) {
-  cat(
-    "\nChoose dataset resolution:\n",
-    "  1) 10 sec  [requires matching MASTER data]\n",
-    "  2) 30 sec  [requires matching MASTER data]\n",
-    "  3) 60 sec  [manuscript/public-repository default]\n",
-    sep = ""
-  )
-  
-  ans <- trimws(readline(
-    sprintf("Enter 10 / 30 / 60 (or 1/2/3). Press Enter for %d sec: ", default)
-  ))
-  
-  if (ans == "") return(as.integer(default))
-  if (ans %in% c("1", "10")) return(10L)
-  if (ans %in% c("2", "30")) return(30L)
-  if (ans %in% c("3", "60")) return(60L)
-  
-  stop("Invalid choice: ", ans, " (expected 10/30/60 or 1/2/3)")
+# The manuscript figure uses 60-sec data. An environment-variable override is
+# retained for optional exploratory rendering at 10 or 30 sec without making
+# the public reproduction workflow interactive.
+RES_SECONDS <- suppressWarnings(as.integer(
+  Sys.getenv("NUBI_RES_SECONDS", unset = "60")
+))
+if (length(RES_SECONDS) != 1L || is.na(RES_SECONDS) ||
+    !(RES_SECONDS %in% c(10L, 30L, 60L))) {
+  stop("NUBI_RES_SECONDS must be one of 10, 30, or 60.")
 }
 
-RES_SECONDS <- choose_resolution(default = 60L)
-
-# Break lines across time gaps > 2 expected bins
-gap_threshold_secs <- 2L * RES_SECONDS
-
-# ----------------------------
-# Input file map
-# ----------------------------
 file_map <- c(
   "10" = "NUBI_Data_10sec_Level_MASTER_CLEAN.csv",
   "30" = "NUBI_Data_30sec_Level_MASTER_CLEAN.csv",
@@ -201,19 +186,40 @@ file_map <- c(
 )
 
 in_file <- unname(file_map[as.character(RES_SECONDS)])
-in_path <- file.path(project_root, "Data", in_file)
 
+PROJECT_ROOT <- Sys.getenv("NUBI_PROJECT_ROOT", unset = NA_character_)
+if (is.na(PROJECT_ROOT) || PROJECT_ROOT == "") {
+  candidate_roots <- unique(normalizePath(
+    c(getwd(), file.path(getwd(), "..")),
+    mustWork = FALSE
+  ))
+  has_data_file <- file.exists(file.path(candidate_roots, "Data", in_file))
+  if (!any(has_data_file)) {
+    stop(
+      "Could not locate Data/", in_file, ". ",
+      "Run this script from the project root or Scripts/ folder, or set ",
+      "Sys.setenv(NUBI_PROJECT_ROOT = '/path/to/project')."
+    )
+  }
+  PROJECT_ROOT <- candidate_roots[which(has_data_file)[1]]
+}
+PROJECT_ROOT <- normalizePath(PROJECT_ROOT, mustWork = TRUE)
+
+in_path <- file.path(PROJECT_ROOT, "Data", in_file)
 if (!file.exists(in_path)) {
   stop("Chosen input file does not exist: ", in_path)
 }
+
+# Break lines across time gaps > 2 expected bins
+gap_threshold_secs <- 2L * RES_SECONDS
 
 # ----------------------------
 # Output folders
 # ----------------------------
 stamp   <- format(Sys.time(), "%Y%m%d_%H%M%S")
 out_dir <- file.path(
-  project_root, "Results", "paper_figs",
-  paste0(stamp, "_", RES_SECONDS, "sec_supplementary_figure_activity3")
+  PROJECT_ROOT, "Results", "paper_figs",
+  paste0(stamp, "_", RES_SECONDS, "sec_supplementary_figureS1_participant_traces")
 )
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -223,7 +229,7 @@ dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 diag_dir <- file.path(out_dir, "Diagnostics")
 dir.create(diag_dir, recursive = TRUE, showWarnings = FALSE)
 
-out_pdf   <- file.path(fig_dir, "Supplementary_Figure.pdf")
+out_pdf   <- file.path(fig_dir, "Supplementary_Figure_S1.pdf")
 log_file  <- file.path(out_dir, "run_log.txt")
 
 # ----------------------------
@@ -600,7 +606,8 @@ fill_missing_grid_one_subject <- function(d, step_secs) {
 }
 
 main <- function() {
-  log_msg("Supplementary multipage PDF start")
+  log_msg("Supplementary Figure S1 generation start")
+  log_msg("Script version: ", SCRIPT_VERSION)
   log_msg("Chosen resolution: ", RES_SECONDS, " sec")
   log_msg("Input: ", in_path)
   log_msg("Output dir: ", out_dir)
@@ -916,6 +923,8 @@ main <- function() {
     print(header / body + plot_layout(heights = c(2.0, 6.5)))
   }
   
+  writeLines(capture.output(sessionInfo()), file.path(out_dir, "session_info.txt"))
+  log_msg("Session information written to: ", file.path(out_dir, "session_info.txt"))
   log_msg("DONE. PDF written to: ", out_pdf)
 }
 
