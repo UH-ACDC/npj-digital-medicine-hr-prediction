@@ -149,10 +149,10 @@ $$
 
 where
 
-- \(HR_{base}\) is participant-specific baseline,
-- \(\tau_c\) is the context-specific offset,
-- \(\phi(X)\) represents modulation by observed covariates,
-- \(\epsilon\) is residual variation.
+- $HR_{\mathrm{base}}$ is participant-specific baseline,
+- $\tau_c$ is the context-specific offset,
+- $\phi(X)$ represents modulation by observed covariates,
+- $\epsilon$ is residual variation.
 
 Prediction performance is evaluated using nested grouped cross-validation to ensure complete separation of participants between training and testing folds.
 
