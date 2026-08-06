@@ -65,7 +65,7 @@ options(warn = 1)
 # ----------------------------
 LOCAL_TZ <- "America/Chicago"
 SHOW_BOX_IN_VIOLIN <- TRUE
-BASE_FONT <- 13
+BASE_FONT <- 14
 
 SHOW_PID_LABELS   <- FALSE
 PID_LABEL_SIZE    <- 7
@@ -1023,10 +1023,17 @@ if ("energy_rot" %in% names(dt_drive2)) {
 pG <- pG_main / pH + plot_layout(heights = c(2, 1.2))
 
 Figure1 <- (pA | pB) / (pC | pD) / (pE | pF | pG) +
-  plot_annotation(tag_levels = "A") +
+  plot_annotation(tag_levels = "a") +
   plot_layout(guides = "collect") &
   theme(
     legend.position = "bottom",
+
+    # Panel labels
+    plot.tag = element_text(
+      face = "bold",
+      size = 18
+    ),
+    plot.tag.position = c(0.008, 0.992),
     plot.title = element_text(size = BASE_FONT + 2),
     plot.subtitle = element_text(size = BASE_FONT),
     strip.text = element_text(size = BASE_FONT),

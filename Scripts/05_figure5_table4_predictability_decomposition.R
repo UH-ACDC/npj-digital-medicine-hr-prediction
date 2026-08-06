@@ -28,8 +28,8 @@
 #       Elastic-net model including additional modulators
 #
 # PANEL DEFINITIONS
-#   A. Cross-validated RMSE across folds
-#   B. Cross-validated squared Pearson correlation r^2 across folds
+#   a. Cross-validated RMSE across folds
+#   b. Cross-validated squared Pearson correlation r^2 across folds
 #
 # INPUT
 #   The script searches recursively under:
@@ -53,10 +53,8 @@
 #
 #   Main outputs:
 #
-#     Figures/Figure5a_Predictability_Decomposition_RMSE.pdf
-#     Figures/Figure5a_Predictability_Decomposition_RMSE.png
-#     Figures/Figure5b_Predictability_Decomposition_R2.pdf
-#     Figures/Figure5b_Predictability_Decomposition_R2.png
+#     Figures/Figure5_Predictability_Decomposition.pdf
+#     Figures/Figure5_Predictability_Decomposition.png
 #     figure5_metrics_by_fold.csv
 #     figure5_summary.csv
 #     figure5_decomposition_rmse.csv
@@ -80,6 +78,7 @@ suppressPackageStartupMessages({
   library(stringr)
   library(ggplot2)
   library(ggpattern)
+  library(patchwork)
 })
 
 options(warn = 1)
@@ -89,7 +88,7 @@ set.seed(20260309)
 # User toggles
 # ----------------------------
 PDF_W <- 10.5
-PDF_H <- 4.0
+PDF_H <- 8.0
 PNG_DPI <- 300
 SAVE_R2_IF_ALL_NA <- TRUE
 
@@ -567,15 +566,17 @@ plot_df <- sum_fold %>%
     err_col = "black"
   )
 
-theme_fig5 <- theme_minimal(base_size = 11) +
+theme_fig5 <- theme_minimal(base_size = 12) +
   theme(
     legend.position = "none",
-    axis.text.x = element_text(angle = 12, hjust = 1),
-    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(size = 11, angle = 12, hjust = 1),
+    axis.text.y = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(face = "bold", size = 12),
     strip.background = element_rect(fill = "white", color = NA),
     panel.grid.minor = element_blank(),
-    plot.title = element_text(face = "bold"),
-    plot.subtitle = element_text(size = 10)
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11)
   )
 
 # ============================================================
@@ -612,7 +613,6 @@ p_rmse <- ggplot(plot_df, aes(x = model_lab, y = rmse_mean)) +
   scale_color_identity() +
   facet_wrap(~ stratum, nrow = 1, scales = "free_x") +
   labs(
-    title = "Predictability decomposition (HR)",
     subtitle = "Cross-validated RMSE across outer folds",
     x = NULL,
     y = "RMSE [bpm]"
@@ -653,7 +653,6 @@ p_rsq <- ggplot(plot_df, aes(x = model_lab, y = rsq_mean)) +
   scale_color_identity() +
   facet_wrap(~ stratum, nrow = 1, scales = "free_x") +
   labs(
-    title = "Predictability decomposition (HR)",
     subtitle = "Cross-validated variance explained across outer folds",
     x = NULL,
     y = expression(r^2)
@@ -661,43 +660,52 @@ p_rsq <- ggplot(plot_df, aes(x = model_lab, y = rsq_mean)) +
   theme_fig5
 
 # ============================================================
-# Save
+# Assemble and save composite Figure 5
 # ============================================================
+# Springer Nature requests all panels belonging to one figure to be
+# supplied in a single file. Lowercase panel tags are used to match
+# manuscript references such as Fig. 5a and Fig. 5b.
+
+all_rsq_na <- all(!is.finite(plot_df$rsq_mean))
+
+if (all_rsq_na && !isTRUE(SAVE_R2_IF_ALL_NA)) {
+  stop(
+    "Figure 5b cannot be assembled because all R2 values are NA and ",
+    "SAVE_R2_IF_ALL_NA is FALSE."
+  )
+}
+
+# Add a little more whitespace between the upper and lower panels.
+p_rmse <- p_rmse +
+  theme(plot.margin = margin(t = 5, r = 5, b = 14, l = 5))
+
+p_rsq <- p_rsq +
+  theme(plot.margin = margin(t = 14, r = 5, b = 5, l = 5))
+
+figure5 <- (p_rmse / p_rsq) +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 18),
+    plot.tag.position = c(0.01, 0.99)
+  )
+
 safe_save_pdf(
-  p_rmse,
-  file.path(fig_dir, "Figure5a_Predictability_Decomposition_RMSE.pdf"),
+  figure5,
+  file.path(fig_dir, "Figure5_Predictability_Decomposition.pdf"),
   w = PDF_W,
   h = PDF_H
 )
+
 safe_save_png(
-  p_rmse,
-  file.path(fig_dir, "Figure5a_Predictability_Decomposition_RMSE.png"),
+  figure5,
+  file.path(fig_dir, "Figure5_Predictability_Decomposition.png"),
   w = PDF_W,
   h = PDF_H,
   dpi = PNG_DPI
 )
-log_msg("Saved Figure 5a (RMSE)")
 
-all_rsq_na <- all(!is.finite(plot_df$rsq_mean))
-if (!all_rsq_na || isTRUE(SAVE_R2_IF_ALL_NA)) {
-  safe_save_pdf(
-    p_rsq,
-    file.path(fig_dir, "Figure5b_Predictability_Decomposition_R2.pdf"),
-    w = PDF_W,
-    h = PDF_H
-  )
-  safe_save_png(
-    p_rsq,
-    file.path(fig_dir, "Figure5b_Predictability_Decomposition_R2.png"),
-    w = PDF_W,
-    h = PDF_H,
-    dpi = PNG_DPI
-  )
-  log_msg("Saved Figure 5b (R2)")
-} else {
-  log_msg("Skipped Figure 5b because all R2 values were NA")
-}
-
+log_msg("Saved composite Figure 5 with panels a and b")
 log_msg("Saved figures to: ", fig_dir)
 
 # ============================================================

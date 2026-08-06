@@ -502,6 +502,19 @@ pretty_stratum <- function(x) {
   )
 }
 
+
+# Shared publication typography for all Figure 6 panels.
+paper_theme <- theme(
+  legend.position = "none",
+  panel.grid.minor = element_blank(),
+  plot.title = element_text(face = "bold", size = 16),
+  strip.text = element_text(face = "bold", size = 13),
+  axis.title = element_text(size = 13),
+  axis.text = element_text(size = 12),
+  legend.title = element_text(size = 13),
+  legend.text = element_text(size = 12)
+)
+
 # ============================================================
 # LOCATE RUN FOLDER + RESOLUTION
 # ============================================================
@@ -864,17 +877,12 @@ pA <- ggplot(grpA_plot, aes(x = group_ord, y = importance, fill = stratum_pretty
   facet_wrap(~stratum_pretty, scales = "free_y") +
   scale_fill_manual(values = c("Driving" = COL_DRIVE, "Non-driving sedentary" = COL_NOND)) +
   labs(
-    title = "A. Grouped covariate importance in ENet",
+    title = "Grouped covariate importance in ENet",
     x = NULL,
     y = "|Standardized coefficient| (summed within predictor)"
   ) +
   theme_minimal(base_size = 11) +
-  theme(
-    legend.position = "none",
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(face = "bold"),
-    plot.title = element_text(face = "bold")
-  )
+  paper_theme
 
 # ============================================================
 # PANEL B: SIGNED INTERPRETABLE COEFFICIENTS
@@ -927,17 +935,12 @@ pB <- ggplot(termB_plot, aes(x = term_ord, y = estimate, fill = sign_dir)) +
     values = c("Negative" = COL_NEG, "Positive" = COL_POS)
   ) +
   labs(
-    title = "B. Signed coefficients for interpretable predictors",
+    title = "Signed coefficients for interpretable predictors",
     x = NULL,
     y = "Standardized coefficient"
   ) +
   theme_minimal(base_size = 11) +
-  theme(
-    legend.position = "none",
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(face = "bold"),
-    plot.title = element_text(face = "bold")
-  )
+  paper_theme
 
 # ============================================================
 # PANEL C: TOP CONTINUOUS MODULATORS
@@ -1036,9 +1039,9 @@ panelC_selected <- bind_rows(
   if (!is.null(top_nond))  tibble(stratum = "NONDRIVING_SEDENTARY", feature = top_nond$feature, beta = top_nond$beta)
 )
 
-message("Panel C top continuous modulator (DRIVING): ",
+message("Panel C top continuous modulator (DRIVING) ",
         if (!is.null(top_drive)) top_drive$feature else "NONE")
-message("Panel C top continuous modulator (NONDRIVING_SEDENTARY): ",
+message("Panel C top continuous modulator (NONDRIVING_SEDENTARY) ",
         if (!is.null(top_nond)) top_nond$feature else "NONE")
 
 curve_list <- list()
@@ -1058,16 +1061,32 @@ if (nrow(curveC) == 0) {
   pC <- ggplot() +
     geom_blank() +
     labs(
-      title = "C. Top continuous modulators",
+      title = "Top continuous modulators",
       subtitle = "No suitable continuous modulator found in one or both strata"
     ) +
     theme_minimal(base_size = 11) +
+    paper_theme +
     theme(
-      plot.title = element_text(face = "bold")
+      # Keep the longer facet labels readable without clipping.
+      strip.text.x = element_text(
+        face = "bold",
+        size = 11.5,
+        margin = margin(b = 4)
+      ),
+
+      # No separate y-axis title is needed; tick values and the zero line
+      # communicate the predicted-HR change scale.
+      axis.title.y = element_blank()
     )
 } else {
   curveC <- curveC %>%
-    mutate(panel = paste0(stratum_pretty, ": ", feature_label))
+    mutate(
+      panel = paste0(
+        stratum_pretty,
+        "\n",
+        feature_label
+      )
+    )
   
   pC <- ggplot(
     curveC,
@@ -1078,17 +1097,12 @@ if (nrow(curveC) == 0) {
     facet_wrap(~panel, scales = "free_x") +
     scale_color_manual(values = c("Driving" = COL_DRIVE, "Non-driving sedentary" = COL_NOND)) +
     labs(
-      title = "C. Top continuous modulators",
+      title = "Top continuous modulators",
       x = "Feature value (5th-95th percentile range)",
-      y = expression(Delta * "Predicted HR [bpm]")
+      y = NULL
     ) +
     theme_minimal(base_size = 11) +
-    theme(
-      legend.position = "none",
-      panel.grid.minor = element_blank(),
-      strip.text = element_text(face = "bold"),
-      plot.title = element_text(face = "bold")
-    )
+    paper_theme
 }
 
 # ============================================================
@@ -1163,17 +1177,26 @@ pD <- ggplot(
     ))
   ) +
   scale_fill_manual(values = c("Driving" = COL_DRIVE, "Non-driving sedentary" = COL_NOND)) +
+  scale_x_discrete(
+    labels = c(
+      "Driving" = "Driving",
+      "Non-driving sedentary" = "Non-driving\nsedentary"
+    )
+  ) +
   labs(
-    title = "D. ENet gain over baseline + context-specific offset",
+    title = "ENet gain over baseline + context-specific offset",
     x = NULL,
     y = "Improvement (positive = better)"
   ) +
   theme_minimal(base_size = 11) +
+  paper_theme +
   theme(
-    legend.position = "none",
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(face = "bold"),
-    plot.title = element_text(face = "bold")
+    plot.title = element_text(face = "bold", size = 15),
+    axis.text.x = element_text(
+      size = 12.5,
+      lineheight = 0.95,
+      margin = margin(t = 6)
+    )
   )
 
 safe_save_pdf <- function(plot_obj, path, width, height) {
@@ -1190,7 +1213,23 @@ safe_save_pdf <- function(plot_obj, path, width, height) {
 # ============================================================
 # COMPOSE FIGURE
 # ============================================================
-fig6 <- (pA | pB) / (pC | pD)
+# Add deliberate white-space gutters between columns and rows.
+# Right/left margins separate the two columns; bottom/top margins
+# separate the upper and lower rows.
+pA <- pA + theme(plot.margin = margin(t = 5,  r = 14, b = 14, l = 5))
+pB <- pB + theme(plot.margin = margin(t = 5,  r = 5,  b = 14, l = 14))
+pC <- pC + theme(plot.margin = margin(t = 14, r = 14, b = 5,  l = 5))
+pD <- pD + theme(plot.margin = margin(t = 14, r = 5,  b = 5,  l = 14))
+
+fig6 <- (pA | pB) / (pC | pD) +
+  plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+      size = 18
+    ),
+    plot.tag.position = c(0.008, 0.992)
+  )
 
 out_pdf <- file.path(fig_out_dir, "Figure6_ENet_Modulators.pdf")
 out_png <- file.path(fig_out_dir, "Figure6_ENet_Modulators.png")
@@ -1243,9 +1282,9 @@ diag_lines <- c(
   paste0("Panel C effect-curve rows: ", nrow(curveC)),
   paste0("Panel D gain rows: ", nrow(gainD)),
   "",
-  paste0("Panel C top modulator (DRIVING): ",
+  paste0("Panel C top modulator (DRIVING) ",
          if (!is.null(top_drive)) top_drive$feature else "NONE"),
-  paste0("Panel C top modulator (NONDRIVING_SEDENTARY): ",
+  paste0("Panel C top modulator (NONDRIVING_SEDENTARY) ",
          if (!is.null(top_nond)) top_nond$feature else "NONE")
 )
 

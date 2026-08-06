@@ -1300,9 +1300,13 @@ pB <- ggplot(
 # SAVE FIGURE 7
 # ============================================================
 
+# Combine panels A and B into a single Figure 7.
+# Lowercase panel labels are generated automatically by patchwork.
 fig7 <- (pA | pB) +
-  plot_annotation(tag_levels = "A") &
-  theme(plot.tag = element_text(face = "bold", size = 14))
+  plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold", size = 13)
+  )
 
 pdf_path <- file.path(fig_dir, "Figure7_LongHorizon_Behavior.pdf")
 png_path <- file.path(fig_dir, "Figure7_LongHorizon_Behavior.png")

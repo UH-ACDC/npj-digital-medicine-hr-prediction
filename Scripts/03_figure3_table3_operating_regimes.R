@@ -1104,7 +1104,7 @@ p_dist <- ggplot(density_df, aes(x = nhr, fill = activity_binary, color = activi
   facet_grid(. ~ stratum) +
   scale_fill_manual(values = PAL_ACTIVITY) +
   scale_color_manual(values = PAL_ACTIVITY) +
-  labs(title = "A. Distribution of NHR", x = "NHR [bpm]", y = "PDF") +
+  labs(title = "Distribution of NHR", x = "NHR [bpm]", y = "PDF") +
   base_theme
 
 # B: occupancy above baseline
@@ -1120,7 +1120,7 @@ p_pct <- ggplot(panel_plot, aes(x = activity_label, y = mean_subject_pct_nhr_gt_
     labels = percent_format(accuracy = 1), limits = c(0, 1.03),
     breaks = c(0, .25, .50, .75, 1.00), expand = expansion(mult = c(0, .01))
   ) +
-  labs(title = "B. Time above baseline", x = NULL, y = "% time NHR > 0") +
+  labs(title = "Time above baseline", x = NULL, y = "% time NHR > 0") +
   base_theme
 
 # C: within-participant variability
@@ -1134,7 +1134,7 @@ p_sd <- ggplot(panel_plot, aes(x = activity_label, y = mean_subject_sd_nhr, fill
   facet_grid(. ~ stratum) +
   scale_fill_manual(values = PAL_ACTIVITY) +
   coord_cartesian(ylim = c(0, sd_ymax)) +
-  labs(title = "C. Variability of NHR", x = NULL, y = "SD(NHR) [bpm]") +
+  labs(title = "Variability of NHR", x = NULL, y = "SD(NHR) [bpm]") +
   base_theme
 
 # D: transition dynamics / persistence
@@ -1148,12 +1148,20 @@ p_returns <- ggplot(panel_plot, aes(x = activity_label, y = mean_subject_returns
   facet_grid(. ~ stratum) +
   scale_fill_manual(values = PAL_ACTIVITY) +
   coord_cartesian(ylim = c(0, ret_ymax)) +
-  labs(title = "D. Returns to baseline", x = NULL, y = "Events per observed hour") +
+  labs(title = "Returns to baseline", x = NULL, y = "Events per observed hour") +
   base_theme
 
 if (requireNamespace("patchwork", quietly = TRUE)) {
   fig_expanded <- p_dist / p_pct / p_sd / p_returns +
-    patchwork::plot_layout(heights = c(1.25, 1, 1, 1))
+    patchwork::plot_layout(heights = c(1.25, 1, 1, 1)) +
+    patchwork::plot_annotation(tag_levels = "a") &
+    theme(
+      plot.tag = element_text(
+        face = "bold",
+        size = 18
+      ),
+      plot.tag.position = c(0.008, 0.992)
+    )
 
   safe_save_pdf(
     fig_expanded,
