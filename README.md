@@ -185,27 +185,30 @@ The repository also reproduces
 
 ---
 
-# Software requirements
+## Software requirements
 
-The analyses were developed and tested using
+The analyses were developed in R. R version 4.6 or later is recommended.
 
-- R (version 4.6 or later)
+The analysis scripts use the following R packages:
 
-Required packages include
+- `data.table`
+- `doParallel`
+- `dplyr`
+- `forcats`
+- `ggpattern`
+- `ggplot2`
+- `lubridate`
+- `patchwork`
+- `purrr`
+- `readr`
+- `rlang`
+- `scales`
+- `stringr`
+- `tibble`
+- `tidymodels`
+- `tidyr`
 
-- tidyverse
-- glmnet
-- lme4
-- lmerTest
-- ggplot2
-- patchwork
-- broom
-- broom.mixed
-- pROC
-- cowplot
-- scales
-
-Individual scripts automatically check for required packages where appropriate.
+Package dependencies are loaded by the individual scripts where required.
 
 ---
 
